@@ -1,0 +1,18 @@
+# dir
+__pycache__
+.idea
+.vscode
+
+# model
+*.pt
+*.pth
+*.ckpt
+*.torchscript
+*.onnx
+*.engine
+accelerator_checkpoint/*
+fabric_checkpoint/*
+fabric_checkpoint/metrics.csv
+
+# data
+datasets/*

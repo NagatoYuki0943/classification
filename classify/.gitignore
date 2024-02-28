@@ -1,0 +1,13 @@
+__pycache__
+.idea
+.vscode
+
+checkpoints/
+datasets/
+
+# model
+*.pt
+*.pth
+*.pkl
+*.ckpt
+*.onnx

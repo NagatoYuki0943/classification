@@ -1,0 +1,10 @@
+how to logout wandb account
+    https://github.com/wandb/wandb/issues/2745
+
+    way1:
+        Use `wandb login --relogin` to force relogin
+
+    way2:
+        wandb配置文件路径
+        ~/.netrc
+        里面包含password,用完可以删除
