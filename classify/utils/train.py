@@ -79,7 +79,7 @@ def train_epochs(epochs: int, model: Module, optimizer: Optimizer, loss_fn: Modu
         #   显示当前config
         #----------------------------------------------------#
         # 优化器参数
-        optim_param = [k+"="+str(v) for k, v in optimizer.state_dict()['param_groups'][0].items() if 'params' not in k]
+        optim_param = [k+"="+str(v) for k, v in optimizer.param_groups[0].items() if 'params' not in k]
         # 学习率降低参数
         if lr_sche:
             lr_param = [k+"="+str(v) for k, v in lr_sche.state_dict().items() if 'params' not in k]
@@ -185,7 +185,7 @@ def train_epochs(epochs: int, model: Module, optimizer: Optimizer, loss_fn: Modu
                 pbar.set_postfix(**{'loss': loss.item()})
                 # Epoch 3/100:  26%|███            | 3227/12500 [00:06<00:24, 379.15it/s, accuracy=2, lr=3, total_loss=1]
         # 学习率
-        lr = optimizer.state_dict()['param_groups'][0]['lr']
+        lr = optimizer.param_groups[0]['lr']
         # 学习率衰减
         if lr_sche is not None:
             lr_sche.step()
