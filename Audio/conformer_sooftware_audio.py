@@ -22,30 +22,18 @@ from typing import Tuple, Optional
 import math
 
 
-class Swish(nn.Module):
-    """
-    Swish is a smooth, non-monotonic function that consistently matches or outperforms ReLU on deep networks applied
-    to a variety of challenging domains such as Image classification and Machine translation.
-    """
-    def __init__(self):
-        super(Swish, self).__init__()
-
-    def forward(self, inputs: Tensor) -> Tensor:
-        return inputs * inputs.sigmoid()
-
-
 class GLU(nn.Module):
     """
     The gating mechanism is called Gated Linear Units (GLU), which was first introduced for natural language processing
     in the paper “Language Modeling with Gated Convolutional Networks”
     """
     def __init__(self, dim: int) -> None:
-        super(GLU, self).__init__()
+        super().__init__()
         self.dim = dim
 
     def forward(self, inputs: Tensor) -> Tensor:
-        outputs, gate = inputs.chunk(2, dim=self.dim)
-        return outputs * gate.sigmoid()
+        outputs, gate = inputs.chunk(2, dim=self.dim)   # [B, C*2, N] -> [B, C, N], [B, C, N]
+        return outputs * gate.sigmoid()                 # [B, C, N] * sigmoid([B, C, N]) = [B, C, N]
 
 
 class Conv2dSubampling(nn.Module):
@@ -64,7 +52,7 @@ class Conv2dSubampling(nn.Module):
         - **output_lengths** (batch): list of sequence output lengths
     """
     def __init__(self, in_channels: int, out_channels: int) -> None:
-        super(Conv2dSubampling, self).__init__()
+        super().__init__()
         self.sequential = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1),  # add padding
             nn.ReLU(),
@@ -73,14 +61,14 @@ class Conv2dSubampling(nn.Module):
         )
 
     def forward(self, inputs: Tensor, input_lengths: Tensor) -> Tuple[Tensor, Tensor]:
-        outputs = self.sequential(inputs.unsqueeze(1))  # [B, sequence_length, 64] -> [B, 32, sequence_length/4, 16]
+        outputs = self.sequential(inputs.unsqueeze(1))  # [B, N, 80] -> [B, 512, N/4, 20]
         batch_size, channels, subsampled_lengths, sumsampled_dim = outputs.size()
 
-        outputs = outputs.permute(0, 2, 1, 3)           # [B, 32, sequence_length/4, 16] -> [B, sequence_length/4, 32, 16]
-        outputs = outputs.contiguous().view(batch_size, subsampled_lengths, channels * sumsampled_dim)  # [B, sequence_length/4, 32, 16] -> [B, sequence_length/4, 32*16]
+        outputs = outputs.permute(0, 2, 1, 3)           # [B, 512, N/4, 20] -> [B, N/4, 512, 20]
+        outputs = outputs.contiguous().view(batch_size, subsampled_lengths, channels * sumsampled_dim)  # [B, N/4, 512, 20] -> [B, N/4, 512*20]
 
-        output_lengths = input_lengths >> 2             # input_lengths / 4
-        output_lengths -= 1
+        output_lengths = input_lengths >> 2             # input_lengths // 4
+        # output_lengths -= 1   # add padding
 
         return outputs, output_lengths
 
@@ -91,7 +79,7 @@ class Linear(nn.Module):
     Weight initialize by xavier initialization and bias initialize to zeros.
     """
     def __init__(self, in_features: int, out_features: int, bias: bool = True) -> None:
-        super(Linear, self).__init__()
+        super().__init__()
         self.linear = nn.Linear(in_features, out_features, bias=bias)
         torch.nn.init.xavier_uniform_(self.linear.weight)
         if bias:
@@ -101,107 +89,13 @@ class Linear(nn.Module):
         return self.linear(x)
 
 
-class Transpose(nn.Module):
-    """ Wrapper class of torch.transpose() for Sequential module. """
-    def __init__(self, shape: tuple):
-        super(Transpose, self).__init__()
-        self.shape = shape
-
-    def forward(self, x: Tensor) -> Tensor:
-        return x.transpose(*self.shape) # [B, S, C] -> [B, C, S]
-
-
-class PointwiseConv1d(nn.Module):
-    """
-    When kernel size == 1 conv1d, this operation is termed in literature as pointwise convolution.
-    This operation often used to match dimensions.
-
-    Args:
-        in_channels (int): Number of channels in the input
-        out_channels (int): Number of channels produced by the convolution
-        stride (int, optional): Stride of the convolution. Default: 1
-        padding (int or tuple, optional): Zero-padding added to both sides of the input. Default: 0
-        bias (bool, optional): If True, adds a learnable bias to the output. Default: True
-
-    Inputs: inputs
-        - **inputs** (batch, in_channels, time): Tensor containing input vector
-
-    Returns: outputs
-        - **outputs** (batch, out_channels, time): Tensor produces by pointwise 1-D convolution.
-    """
-    def __init__(
-            self,
-            in_channels: int,
-            out_channels: int,
-            stride: int = 1,
-            padding: int = 0,
-            bias: bool = True,
-    ) -> None:
-        super(PointwiseConv1d, self).__init__()
-        self.conv = nn.Conv1d(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel_size=1,
-            stride=stride,
-            padding=padding,
-            bias=bias,
-        )
-
-    def forward(self, inputs: Tensor) -> Tensor:
-        return self.conv(inputs)    # [B, C, S] -> [B, C, S]
-
-
-class DepthwiseConv1d(nn.Module):
-    """
-    When groups == in_channels and out_channels == K * in_channels, where K is a positive integer,
-    this operation is termed in literature as depthwise convolution.
-
-    Args:
-        in_channels (int): Number of channels in the input
-        out_channels (int): Number of channels produced by the convolution
-        kernel_size (int or tuple): Size of the convolving kernel
-        stride (int, optional): Stride of the convolution. Default: 1
-        padding (int or tuple, optional): Zero-padding added to both sides of the input. Default: 0
-        bias (bool, optional): If True, adds a learnable bias to the output. Default: True
-
-    Inputs: inputs
-        - **inputs** (batch, in_channels, time): Tensor containing input vector
-
-    Returns: outputs
-        - **outputs** (batch, out_channels, time): Tensor produces by depthwise 1-D convolution.
-    """
-    def __init__(
-            self,
-            in_channels: int,
-            out_channels: int,
-            kernel_size: int,
-            stride: int = 1,
-            padding: int = 0,
-            bias: bool = False,
-    ) -> None:
-        super(DepthwiseConv1d, self).__init__()
-        assert out_channels % in_channels == 0, "out_channels should be constant multiple of in_channels"
-        self.conv = nn.Conv1d(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel_size=kernel_size,
-            groups=in_channels,
-            stride=stride,
-            padding=padding,
-            bias=bias,
-        )
-
-    def forward(self, inputs: Tensor) -> Tensor:
-        return self.conv(inputs)
-
-
 class ResidualConnectionModule(nn.Module):
     """
     Residual Connection Module.
     outputs = (module(inputs) x module_factor + inputs x input_factor)
     """
     def __init__(self, module: nn.Module, module_factor: float = 1.0, input_factor: float = 1.0):
-        super(ResidualConnectionModule, self).__init__()
+        super().__init__()
         self.module = module
         self.module_factor = module_factor
         self.input_factor = input_factor
@@ -226,7 +120,7 @@ class ResidualConnectionModule(nn.Module):
 #       │     │
 #      bn     │
 #       │     │
-#     swish   │
+#      silu   │
 #       │     │
 #     pwconv  │
 #       │     │
@@ -259,25 +153,55 @@ class ConformerConvModule(nn.Module):
             expansion_factor: int = 2,
             dropout_p: float = 0.1,
     ) -> None:
-        super(ConformerConvModule, self).__init__()
+        super().__init__()
         assert (kernel_size - 1) % 2 == 0, "kernel_size should be a odd number for 'SAME' padding"
         assert expansion_factor == 2, "Currently, Only Supports expansion_factor 2"
 
-        self.sequential = nn.Sequential(
-            nn.LayerNorm(in_channels),
-            Transpose(shape=(1, 2)),
-            PointwiseConv1d(in_channels, in_channels * expansion_factor, stride=1, padding=0, bias=True),
-            GLU(dim=1),
-            DepthwiseConv1d(in_channels, in_channels, kernel_size, stride=1, padding=(kernel_size - 1) // 2),
-            nn.BatchNorm1d(in_channels),
-            Swish(),
-            PointwiseConv1d(in_channels, in_channels, stride=1, padding=0, bias=True),
-            nn.Dropout(p=dropout_p),
+        self.ln = nn.LayerNorm(in_channels)
+        self.conv1 = nn.Conv1d(
+            in_channels=in_channels,
+            out_channels=in_channels * expansion_factor,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            bias=True,
         )
+        self.glu = GLU(dim=1)
+
+        self.conv2 = nn.Conv1d(
+            in_channels=in_channels,
+            out_channels=in_channels,
+            kernel_size=kernel_size,
+            groups=in_channels,
+            stride=1,
+            padding=(kernel_size - 1) // 2,
+            bias=True,
+        )
+        self.bn = nn.BatchNorm1d(in_channels)
+        self.silu = nn.SiLU()
+
+        self.conv3 = nn.Conv1d(
+            in_channels=in_channels,
+            out_channels=in_channels,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            bias=True,
+        )
+        self.dropout = nn.Dropout(p=dropout_p)
 
     def forward(self, inputs: Tensor) -> Tensor:
-        return self.sequential(inputs).transpose(1, 2)
-
+        x = self.ln(inputs)
+        x = x.transpose(1, 2)   # [B, N, C] -> [B, C, N]
+        x = self.conv1(x)       # [B, C, N] -> [B, C*2, N]
+        x = self.glu(x)         # [B, C*2, N] -> [B, C, N]
+        x = self.conv2(x)       # [B, C, N] -> [B, C, N]
+        x = self.bn(x)
+        x = self.silu(x)
+        x = self.conv3(x)       # [B, C, N] -> [B, C, N]
+        x = self.dropout(x)
+        x = x.transpose(1, 2)   # [B, C, N] -> [B, N, C]
+        return x
 
 class PositionalEncoding(nn.Module):
     """
@@ -290,7 +214,7 @@ class PositionalEncoding(nn.Module):
         PE_(pos, 2i+1)  =  cos(pos / power(10000, 2i / d_model))
     """
     def __init__(self, d_model: int = 512, max_len: int = 10000) -> None:
-        super(PositionalEncoding, self).__init__()
+        super().__init__()
         pe = torch.zeros(max_len, d_model, requires_grad=False)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model))
@@ -324,12 +248,12 @@ class RelativeMultiHeadAttention(nn.Module):
         - **outputs**: Tensor produces by relative multi head attention module.
     """
     def __init__(
-            self,
-            d_model: int = 512,
-            num_heads: int = 16,
-            dropout_p: float = 0.1,
+        self,
+        d_model: int = 512,
+        num_heads: int = 16,
+        dropout_p: float = 0.1,
     ):
-        super(RelativeMultiHeadAttention, self).__init__()
+        super().__init__()
         assert d_model % num_heads == 0, "d_model % num_heads should be zero."
         self.d_model = d_model
         self.d_head = int(d_model / num_heads)
@@ -350,34 +274,34 @@ class RelativeMultiHeadAttention(nn.Module):
         self.out_proj = Linear(d_model, d_model)
 
     def forward(
-            self,
-            query: Tensor,
-            key: Tensor,
-            value: Tensor,
-            pos_embedding: Tensor,
-            mask: Optional[Tensor] = None,
+        self,
+        query: Tensor,
+        key: Tensor,
+        value: Tensor,
+        pos_embedding: Tensor,
+        mask: Optional[Tensor] = None,
     ) -> Tensor:
         batch_size = value.size(0)
 
-        query = self.query_proj(query)                                  # [B, S, C] -> [B, S, C]
-        query = query.view(batch_size, -1, self.num_heads, self.d_head) # [B, S, C] -> [B, S, num_head, head_dim]   C = num_head * head_dim
+        query = self.query_proj(query)                                  # [B, N, C] -> [B, N, C]
+        query = query.view(batch_size, -1, self.num_heads, self.d_head) # [B, N, C] -> [B, N, num_head, head_dim]   C = num_head * head_dim
 
-        key = self.key_proj(key)                                        # [B, S, C] -> [B, S, C]
-        key = key.view(batch_size, -1, self.num_heads, self.d_head)     # [B, S, C] -> [B, S, num_head, head_dim]
-        key = key.permute(0, 2, 1, 3)                                   # [B, S, num_head, head_dim] -> [B, num_head, S, head_dim]
+        key = self.key_proj(key)                                        # [B, N, C] -> [B, N, C]
+        key = key.view(batch_size, -1, self.num_heads, self.d_head)     # [B, N, C] -> [B, N, num_head, head_dim]
+        key = key.permute(0, 2, 1, 3)                                   # [B, N, num_head, head_dim] -> [B, num_head, N, head_dim]
 
-        value = self.value_proj(value)                                  # [B, S, C] -> [B, S, C]
-        value = value.view(batch_size, -1, self.num_heads, self.d_head) # [B, S, C] -> [B, S, num_head, head_dim]
-        value = value.permute(0, 2, 1, 3)                               # [B, S, num_head, head_dim] -> [B, num_head, S, head_dim]
+        value = self.value_proj(value)                                  # [B, N, C] -> [B, N, C]
+        value = value.view(batch_size, -1, self.num_heads, self.d_head) # [B, N, C] -> [B, N, num_head, head_dim]
+        value = value.permute(0, 2, 1, 3)                               # [B, N, num_head, head_dim] -> [B, num_head, N, head_dim]
 
-        pos_embedding = self.pos_proj(pos_embedding)                                    # [B, S, C] -> [B, S, C]
-        pos_embedding = pos_embedding.view(batch_size, -1, self.num_heads, self.d_head) # [B, S, C] -> [B, S, num_head, head_dim]
+        pos_embedding = self.pos_proj(pos_embedding)                                    # [B, N, C] -> [B, N, C]
+        pos_embedding = pos_embedding.view(batch_size, -1, self.num_heads, self.d_head) # [B, N, C] -> [B, N, num_head, head_dim]
 
-        content_score = torch.matmul((query + self.u_bias).transpose(1, 2), key.transpose(2, 3))            # [B, num_head, S, head_dim] @ [B, num_head, head_dim, S] = [B, num_head, S, S]
-        pos_score = torch.matmul((query + self.v_bias).transpose(1, 2), pos_embedding.permute(0, 2, 3, 1))  # [B, num_head, S, head_dim] @ [B, num_head, head_dim, S] = [B, num_head, S, S]
-        pos_score = self._relative_shift(pos_score)                                                         # [B, num_head, S, S] -> [B, num_head, S, S]
+        content_score = torch.matmul((query + self.u_bias).transpose(1, 2), key.transpose(2, 3))            # [B, num_head, N, head_dim] @ [B, num_head, head_dim, N] = [B, num_head, N, N]
+        pos_score = torch.matmul((query + self.v_bias).transpose(1, 2), pos_embedding.permute(0, 2, 3, 1))  # [B, num_head, N, head_dim] @ [B, num_head, head_dim, N] = [B, num_head, N, N]
+        pos_score = self._relative_shift(pos_score)                                                         # [B, num_head, N, N] -> [B, num_head, N, N]
 
-        score = (content_score + pos_score) / self.sqrt_dim     # ([B, num_head, S, S] + [B, num_head, S, S]) / sqrt_dim = [B, num_head, S, S]
+        score = (content_score + pos_score) / self.sqrt_dim     # ([B, num_head, N, N] + [B, num_head, N, N]) / sqrt_dim = [B, num_head, N, N]
 
         if mask is not None:
             mask = mask.unsqueeze(1)
@@ -386,10 +310,10 @@ class RelativeMultiHeadAttention(nn.Module):
         attn = F.softmax(score, -1)
         attn = self.dropout(attn)
 
-        context = torch.matmul(attn, value).transpose(1, 2)                 # [B, num_head, S, S] @ [B, num_head, S, head_dim] = [B, num_head, S, head_dim] -> [B, S, num_head, head_dim]
-        context = context.contiguous().view(batch_size, -1, self.d_model)   # [B, S, num_head, head_dim] -> [B, S, C]
+        context = torch.matmul(attn, value).transpose(1, 2)                 # [B, num_head, N, N] @ [B, num_head, N, head_dim] = [B, num_head, N, head_dim] -> [B, N, num_head, head_dim]
+        context = context.contiguous().view(batch_size, -1, self.d_model)   # [B, N, num_head, head_dim] -> [B, N, C]
 
-        return self.out_proj(context)                                       # [B, S, C] -> [B, S, C]
+        return self.out_proj(context)                                       # [B, N, C] -> [B, N, C]
 
     def _relative_shift(self, pos_score: Tensor) -> Tensor:
         batch_size, num_heads, seq_length1, seq_length2 = pos_score.size()
@@ -423,19 +347,19 @@ class MultiHeadedSelfAttentionModule(nn.Module):
         - **outputs** (batch, time, dim): Tensor produces by relative multi headed self attention module.
     """
     def __init__(self, d_model: int, num_heads: int, dropout_p: float = 0.1):
-        super(MultiHeadedSelfAttentionModule, self).__init__()
+        super().__init__()
         self.positional_encoding = PositionalEncoding(d_model)
         self.layer_norm = nn.LayerNorm(d_model)
         self.attention = RelativeMultiHeadAttention(d_model, num_heads, dropout_p)
         self.dropout = nn.Dropout(p=dropout_p)
 
     def forward(self, inputs: Tensor, mask: Optional[Tensor] = None):
-        batch_size, seq_length, _ = inputs.size()
-        pos_embedding = self.positional_encoding(seq_length)
-        pos_embedding = pos_embedding.repeat(batch_size, 1, 1)
+        batch_size, seq_length, _ = inputs.size()               # [B, N, C]
+        pos_embedding = self.positional_encoding(seq_length)    # [1, N, C]
+        pos_embedding = pos_embedding.repeat(batch_size, 1, 1)  # [1, N, C] -> [B, N, C]
 
         inputs = self.layer_norm(inputs)
-        outputs = self.attention(inputs, inputs, inputs, pos_embedding=pos_embedding, mask=mask)
+        outputs = self.attention(inputs, inputs, inputs, pos_embedding=pos_embedding, mask=mask)    # [B, N, C] -> [B, N, C]
 
         return self.dropout(outputs)
 
@@ -458,23 +382,27 @@ class FeedForwardModule(nn.Module):
         - **outputs** (batch, time, dim): Tensor produces by feed forward module.
     """
     def __init__(
-            self,
-            encoder_dim: int = 512,
-            expansion_factor: int = 4,
-            dropout_p: float = 0.1,
+        self,
+        encoder_dim: int = 512,
+        expansion_factor: int = 4,
+        dropout_p: float = 0.1,
     ) -> None:
-        super(FeedForwardModule, self).__init__()
-        self.sequential = nn.Sequential(
-            nn.LayerNorm(encoder_dim),
-            Linear(encoder_dim, encoder_dim * expansion_factor, bias=True),
-            Swish(),
-            nn.Dropout(p=dropout_p),
-            Linear(encoder_dim * expansion_factor, encoder_dim, bias=True),
-            nn.Dropout(p=dropout_p),
-        )
+        super().__init__()
+
+        self.norm = nn.LayerNorm(encoder_dim)
+        self.fc1 = Linear(encoder_dim, encoder_dim * expansion_factor, bias=True)
+        self.act = nn.SiLU()
+        self.drop1 = nn.Dropout(p=dropout_p)
+        self.fc2 = Linear(encoder_dim * expansion_factor, encoder_dim, bias=True)
+        self.drop2 = nn.Dropout(p=dropout_p)
 
     def forward(self, inputs: Tensor) -> Tensor:
-        return self.sequential(inputs)
+        x = self.norm(inputs)
+        x = self.fc1(x)
+        x = self.act(x)
+        x = self.drop1(x)
+        x = self.fc2(x)
+        return self.drop2(x)
 
 
 #---------------------#
@@ -533,60 +461,63 @@ class ConformerBlock(nn.Module):
         - **outputs** (batch, time, dim): Tensor produces by conformer block.
     """
     def __init__(
-            self,
-            encoder_dim: int = 512,
-            num_attention_heads: int = 8,
-            feed_forward_expansion_factor: int = 4,
-            conv_expansion_factor: int = 2,
-            feed_forward_dropout_p: float = 0.1,
-            attention_dropout_p: float = 0.1,
-            conv_dropout_p: float = 0.1,
-            conv_kernel_size: int = 31,
-            half_step_residual: bool = True,
+        self,
+        encoder_dim: int = 512,                 # 隐藏层维度
+        num_attention_heads: int = 8,           # attnention头数
+        feed_forward_expansion_factor: int = 4, # mlp扩展系数
+        conv_expansion_factor: int = 2,         # 卷积扩展系数
+        feed_forward_dropout_p: float = 0.1,
+        attention_dropout_p: float = 0.1,
+        conv_dropout_p: float = 0.1,
+        conv_kernel_size: int = 31,
+        half_step_residual: bool = True,
     ):
-        super(ConformerBlock, self).__init__()
+        super().__init__()
         if half_step_residual:
             self.feed_forward_residual_factor = 0.5
         else:
             self.feed_forward_residual_factor = 1
 
-        self.sequential = nn.Sequential(
-            ResidualConnectionModule(
-                module=FeedForwardModule(
-                    encoder_dim=encoder_dim,
-                    expansion_factor=feed_forward_expansion_factor,
-                    dropout_p=feed_forward_dropout_p,
-                ),
-                module_factor=self.feed_forward_residual_factor,
+        self.ffn1 = ResidualConnectionModule(
+            module=FeedForwardModule(
+                encoder_dim=encoder_dim,
+                expansion_factor=feed_forward_expansion_factor,
+                dropout_p=feed_forward_dropout_p,
             ),
-            ResidualConnectionModule(
-                module=MultiHeadedSelfAttentionModule(
-                    d_model=encoder_dim,
-                    num_heads=num_attention_heads,
-                    dropout_p=attention_dropout_p,
-                ),
-            ),
-            ResidualConnectionModule(
-                module=ConformerConvModule(
-                    in_channels=encoder_dim,
-                    kernel_size=conv_kernel_size,
-                    expansion_factor=conv_expansion_factor,
-                    dropout_p=conv_dropout_p,
-                ),
-            ),
-            ResidualConnectionModule(
-                module=FeedForwardModule(
-                    encoder_dim=encoder_dim,
-                    expansion_factor=feed_forward_expansion_factor,
-                    dropout_p=feed_forward_dropout_p,
-                ),
-                module_factor=self.feed_forward_residual_factor,
-            ),
-            nn.LayerNorm(encoder_dim),
+            module_factor=self.feed_forward_residual_factor,
         )
+        self.attn = ResidualConnectionModule(
+            module=MultiHeadedSelfAttentionModule(
+                d_model=encoder_dim,
+                num_heads=num_attention_heads,
+                dropout_p=attention_dropout_p,
+            ),
+        )
+        self.conv = ResidualConnectionModule(
+            module=ConformerConvModule(
+                in_channels=encoder_dim,
+                kernel_size=conv_kernel_size,
+                expansion_factor=conv_expansion_factor,
+                dropout_p=conv_dropout_p,
+            ),
+        )
+        self.ffn2 = ResidualConnectionModule(
+            module=FeedForwardModule(
+                encoder_dim=encoder_dim,
+                expansion_factor=feed_forward_expansion_factor,
+                dropout_p=feed_forward_dropout_p,
+            ),
+            module_factor=self.feed_forward_residual_factor,
+        )
+        self.ln = nn.LayerNorm(encoder_dim)
 
     def forward(self, inputs: Tensor) -> Tensor:
-        return self.sequential(inputs)
+        x = self.ffn1(inputs)
+        x = self.attn(x)
+        x = self.conv(x)
+        x = self.ffn2(x)
+        x = self.ln(x)
+        return x
 
 
 class ConformerEncoder(nn.Module):
@@ -616,28 +547,28 @@ class ConformerEncoder(nn.Module):
         - **output_lengths** (batch): list of sequence output lengths
     """
     def __init__(
-            self,
-            input_dim: int = 80,
-            encoder_dim: int = 512,
-            num_layers: int = 17,
-            num_attention_heads: int = 8,
-            feed_forward_expansion_factor: int = 4,
-            conv_expansion_factor: int = 2,
-            input_dropout_p: float = 0.1,
-            feed_forward_dropout_p: float = 0.1,
-            attention_dropout_p: float = 0.1,
-            conv_dropout_p: float = 0.1,
-            conv_kernel_size: int = 31,
-            half_step_residual: bool = True,
+        self,
+        input_dim: int = 80,                    # 输入数据的维度
+        encoder_dim: int = 512,                 # 隐藏层维度
+        num_layers: int = 17,                   # 重复block次数
+        num_attention_heads: int = 8,           # attnention头数
+        feed_forward_expansion_factor: int = 4, # mlp扩展系数
+        conv_expansion_factor: int = 2,         # 卷积扩展系数
+        input_dropout_p: float = 0.1,
+        feed_forward_dropout_p: float = 0.1,
+        attention_dropout_p: float = 0.1,
+        conv_dropout_p: float = 0.1,
+        conv_kernel_size: int = 31,             # 深度卷积核大小
+        half_step_residual: bool = True,
     ):
-        super(ConformerEncoder, self).__init__()
+        super().__init__()
         # 开始的下采样
         self.conv_subsample = Conv2dSubampling(in_channels=1, out_channels=encoder_dim)
 
         # 调整输入通道
         self.input_projection = nn.Sequential(
             # Linear(encoder_dim * (((input_dim - 1) // 2 - 1) // 2), encoder_dim),
-            Linear(encoder_dim * (input_dim // 2 // 2), encoder_dim),   # add Conv2dSubampling padding
+            Linear(encoder_dim * (input_dim // 2 // 2), encoder_dim),   # Conv2dSubampling add padding
             nn.Dropout(p=input_dropout_p),
         )
 
@@ -680,15 +611,15 @@ class ConformerEncoder(nn.Module):
                 ``(batch, seq_length, dimension)``
             * output_lengths (torch.LongTensor): The length of output tensor. ``(batch)``
         """
-        # 开始的下采样 [B, sequence_length, 64], [B] -> [B, sequence_length/4, 512], [B]
+        # 开始的下采样 [B, N, 80], [B] -> [B, N/4, 512*20], [B]
         outputs, output_lengths = self.conv_subsample(inputs, input_lengths)
 
-        # 调整输入通道  [B, sequence_length/4, 512] -> [B, sequence_length/4, 32]
+        # 调整输入通道  [B, N/4, 512*20] -> [B, N/4, 512]
         outputs = self.input_projection(outputs)
 
         # 循环 ConformerBlock
         for layer in self.layers:
-            outputs = layer(outputs)    # [B, sequence_length/4, 32] -> [B, sequence_length/4, 32]
+            outputs = layer(outputs)    # [B, N/4, 512] -> [B, N/4, 512]
 
         return outputs, output_lengths
 
@@ -722,22 +653,22 @@ class Conformer(nn.Module):
         - **output_lengths** (batch): list of sequence output lengths
     """
     def __init__(
-            self,
-            num_classes: int,
-            input_dim: int = 80,
-            encoder_dim: int = 512,
-            num_encoder_layers: int = 17,
-            num_attention_heads: int = 8,
-            feed_forward_expansion_factor: int = 4,
-            conv_expansion_factor: int = 2,
-            input_dropout_p: float = 0.1,
-            feed_forward_dropout_p: float = 0.1,
-            attention_dropout_p: float = 0.1,
-            conv_dropout_p: float = 0.1,
-            conv_kernel_size: int = 31,
-            half_step_residual: bool = True,
+        self,
+        num_classes: int,                       # 分类数
+        input_dim: int = 80,                    # 输入数据的维度
+        encoder_dim: int = 512,                 # 隐藏层维度
+        num_encoder_layers: int = 17,           # 重复block次数
+        num_attention_heads: int = 8,           # attnention头数
+        feed_forward_expansion_factor: int = 4, # mlp扩展系数
+        conv_expansion_factor: int = 2,         # 卷积扩展系数
+        input_dropout_p: float = 0.1,
+        feed_forward_dropout_p: float = 0.1,
+        attention_dropout_p: float = 0.1,
+        conv_dropout_p: float = 0.1,
+        conv_kernel_size: int = 31,             # 深度卷积核大小
+        half_step_residual: bool = True,
     ) -> None:
-        super(Conformer, self).__init__()
+        super().__init__()
         self.encoder = ConformerEncoder(
             input_dim=input_dim,
             encoder_dim=encoder_dim,
@@ -774,37 +705,37 @@ class Conformer(nn.Module):
         Returns:
             * predictions (torch.FloatTensor): Result of model predictions.
         """
-        encoder_outputs, encoder_output_lengths = self.encoder(inputs, input_lengths) # [B, sequence_length, 64], [B] -> [B, sequence_length/4, 32], [B]
-        outputs = self.fc(encoder_outputs)                      # [B, sequence_length/4, 32] -> [B, sequence_length/4, num_classes]
-        outputs = nn.functional.log_softmax(outputs, dim=-1)    # [B, sequence_length/4, num_classes] -> [B, sequence_length/4, num_classes]
+        encoder_outputs, encoder_output_lengths = self.encoder(inputs, input_lengths) # [B, N, 80], [B] -> [B, N/4, 512], [B]
+        outputs = self.fc(encoder_outputs)                                            # [B, N/4, 512] -> [B, N/4, num_classes]
+        outputs = nn.functional.log_softmax(outputs, dim=-1)
         return outputs, encoder_output_lengths
 
 
 if __name__ == "__main__":
-    batch_size, sequence_length, dim = 3, 10000, 64
+    batch_size, sequence_length, input_dim = 3, 1000, 80
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    criterion = nn.CTCLoss().to(device)
+    criterion = nn.CTCLoss()
 
-    inputs = torch.rand(batch_size, sequence_length, dim).to(device)
-    input_lengths = torch.LongTensor([7000, 8000, 9000])
+    inputs = torch.rand(batch_size, sequence_length, input_dim).to(device)
+    input_lengths = torch.LongTensor([1000, 900, 800])
     targets = torch.LongTensor([[1, 3, 3, 3, 3, 3, 4, 5, 6, 2],
                                 [1, 3, 3, 3, 3, 3, 4, 5, 2, 0],
                                 [1, 3, 3, 3, 3, 3, 4, 2, 0, 0]]).to(device)
-    target_lengths = torch.LongTensor([9, 8, 7])
+    target_lengths = torch.LongTensor([10, 10, 10])
 
     model = Conformer(
         num_classes=10,
-        input_dim=dim,
-        encoder_dim=32,
-        num_encoder_layers=3
+        input_dim=input_dim,
+        num_encoder_layers=2,
     ).to(device)
 
     # Forward propagate
     outputs, output_lengths = model(inputs, input_lengths)
     print(outputs.shape)        # [B, 2500, 10]
     print(output_lengths.shape) # [B]
+    print(output_lengths)       # [250, 225, 200]
 
     # Calculate CTC Loss
     loss = criterion(outputs.transpose(0, 1), targets, output_lengths, target_lengths)
