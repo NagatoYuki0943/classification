@@ -42,7 +42,7 @@ def get_custom_data(
 
     # 将id和标签写入json列表
     with open(f"{dir}/class_to_idx.json", "w", encoding="utf-8") as f:
-        json.dump(train_dataset.class_to_idx, f)
+        json.dump(train_dataset.class_to_idx, f, ensure_ascii=False, indent=4)
         print(f"\033[0;35;40m{dir}/class_to_idx.json write success.\033[0m")
 
     return train_dataset, val_dataset, train_dataloader, val_dataloader
