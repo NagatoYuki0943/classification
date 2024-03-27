@@ -33,8 +33,10 @@ def get_custom_data(
     train_dataset = ImageFolder(root=os.path.join(dir, "train"), transform=train_transform)
     val_dataset   = ImageFolder(root=os.path.join(dir, "val"), transform=val_transform)
 
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True, drop_last=False)
-    val_dataloader   = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, pin_memory=True, drop_last=False)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers,
+                                  pin_memory=True, drop_last=False, persistent_workers=True)
+    val_dataloader   = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers,
+                                  pin_memory=True, drop_last=False, persistent_workers=True)
 
     train_length = len(train_dataset)
     val_length   = len(val_dataset)
