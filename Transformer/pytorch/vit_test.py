@@ -256,8 +256,8 @@ class VisionTransfromer(nn.Module):
 
         # cls_token & position_embed
         if self.use_cls_token:
-            x = torch.cat((self.cls_token.expand(B, -1, -1), x), dim=1) # [B, 1, 768] cat [B, 196, 768] -> [B, 197, 768]
-        x = x + self.position_embed # [B, 197, 768] + [B, 197, 768] = [B, 197, 768]
+            x = torch.cat((self.cls_token.expand(B, -1, -1), x), dim=1) # [1, 1, 768] -> [B, 1, 768] cat [B, 196, 768] -> [B, 197, 768]
+        x = x + self.position_embed # [B, 197, 768] + [1, 197, 768] = [B, 197, 768]
         x = self.position_drop(x)   # ❗❗❗important❗❗❗
 
         # TransfromerBlock
