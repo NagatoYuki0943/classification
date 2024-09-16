@@ -3,7 +3,11 @@ from torch import nn
 from torchvision import models
 
 
-device = "cuda:0" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+device = (
+    "cuda:0"
+    if torch.cuda.is_available()
+    else ("mps" if torch.backends.mps.is_available() else "cpu")
+)
 
 x = torch.ones(1, 3, 224, 224).to(device)
 
@@ -28,4 +32,4 @@ optimizer = torch.optim.Adam(pg, lr=0.001)
 
 with torch.inference_mode():
     y = model(x)
-print(y.size()) # [1, 10]
+print(y.size())  # [1, 10]

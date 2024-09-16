@@ -48,7 +48,6 @@ class Conv2dNormActivation(nn.Sequential):
         inplace: Optional[bool] = True,
         bias: Optional[bool] = None,
     ) -> None:
-
         if padding is None:
             padding = (kernel_size - 1) // 2 * dilation
         if bias is None:
@@ -92,7 +91,7 @@ class Permute(nn.Module):
         return torch.permute(x, self.dims)
 
 
-#----------------------------------#
+# ----------------------------------#
 #   ConvNeXtBlock
 #             in    [B, C, H, W]
 #              │
@@ -114,7 +113,7 @@ class Permute(nn.Module):
 #   └─────────add
 #              │
 #             out
-#----------------------------------#
+# ----------------------------------#
 class CNBlock(nn.Module):
     def __init__(
         self,
@@ -129,13 +128,19 @@ class CNBlock(nn.Module):
 
         self.block = nn.Sequential(
             # DWConv
-            nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim, bias=True),   # [B, C, H, W] -> [B, C, H, W]
-            Permute([0, 2, 3, 1]),                                                  # [B, C, H, W] -> [B, H, W, C]
-            norm_layer(dim),        # LayerNorm 和 Linear 默认在最后通道计算
-            nn.Linear(in_features=dim, out_features=4 * dim, bias=True),            # [B, H, W, C] -> [B, H, W,4C]
+            nn.Conv2d(
+                dim, dim, kernel_size=7, padding=3, groups=dim, bias=True
+            ),  # [B, C, H, W] -> [B, C, H, W]
+            Permute([0, 2, 3, 1]),  # [B, C, H, W] -> [B, H, W, C]
+            norm_layer(dim),  # LayerNorm 和 Linear 默认在最后通道计算
+            nn.Linear(
+                in_features=dim, out_features=4 * dim, bias=True
+            ),  # [B, H, W, C] -> [B, H, W,4C]
             nn.GELU(),
-            nn.Linear(in_features=4 * dim, out_features=dim, bias=True),            # [B, H, W,4C] -> [B, H, W, C]
-            Permute([0, 3, 1, 2]),                                                  # [B, H, W, C] -> [B, C, H, W]
+            nn.Linear(
+                in_features=4 * dim, out_features=dim, bias=True
+            ),  # [B, H, W,4C] -> [B, H, W, C]
+            Permute([0, 3, 1, 2]),  # [B, H, W, C] -> [B, C, H, W]
         )
 
         # 通道的权重 [C, 1, 1]
@@ -157,7 +162,7 @@ class CNBlockConfig:
         self,
         input_channels: int,
         out_channels: Optional[int],
-        num_layers: int,            # block重复次数
+        num_layers: int,  # block重复次数
     ) -> None:
         self.input_channels = input_channels
         self.out_channels = out_channels
@@ -187,7 +192,10 @@ class ConvNeXt(nn.Module):
 
         if not block_setting:
             raise ValueError("The block_setting should not be empty")
-        elif not (isinstance(block_setting, Sequence) and all([isinstance(s, CNBlockConfig) for s in block_setting])):
+        elif not (
+            isinstance(block_setting, Sequence)
+            and all([isinstance(s, CNBlockConfig) for s in block_setting])
+        ):
             raise TypeError("The block_setting should be List[CNBlockConfig]")
 
         if block is None:
@@ -198,10 +206,10 @@ class ConvNeXt(nn.Module):
 
         layers: List[nn.Module] = []
 
-        #-----------------------------------------#
+        # -----------------------------------------#
         #   Stem k=4 s=4
         #   [B, 3, 224, 224] -> [B, 96, 56, 56]
-        #-----------------------------------------#
+        # -----------------------------------------#
         firstconv_output_channels = block_setting[0].input_channels
         layers.append(
             Conv2dNormActivation(
@@ -216,32 +224,39 @@ class ConvNeXt(nn.Module):
             )
         )
 
-        #-------------------------------------------------------------------------------#
+        # -------------------------------------------------------------------------------#
         #   stages
         #   [B, 96, 56, 56] -> [B, 192, 28, 28] -> [B, 384, 14, 14] -> [B, 768, 7, 7]
-        #-------------------------------------------------------------------------------#
+        # -------------------------------------------------------------------------------#
         total_stage_blocks = sum(cnf.num_layers for cnf in block_setting)
         stage_block_id = 0
         for cnf in block_setting:
-            #---------------------------#
+            # ---------------------------#
             #   num_layers 次 CNBlock
-            #---------------------------#
+            # ---------------------------#
             stage: List[nn.Module] = []
             for _ in range(cnf.num_layers):
                 # adjust stochastic depth probability based on the depth of the stage block
-                sd_prob = stochastic_depth_prob * stage_block_id / (total_stage_blocks - 1.0)
+                sd_prob = (
+                    stochastic_depth_prob * stage_block_id / (total_stage_blocks - 1.0)
+                )
                 stage.append(block(cnf.input_channels, layer_scale, sd_prob))
                 stage_block_id += 1
             layers.append(nn.Sequential(*stage))
-            #------------------------------------------#
+            # ------------------------------------------#
             #   后面添加下Downsampling,最后stage不添加
             #   Conv k=2 s=2
-            #------------------------------------------#
+            # ------------------------------------------#
             if cnf.out_channels is not None:
                 layers.append(
                     nn.Sequential(
                         norm_layer(cnf.input_channels),
-                        nn.Conv2d(cnf.input_channels, cnf.out_channels, kernel_size=2, stride=2),
+                        nn.Conv2d(
+                            cnf.input_channels,
+                            cnf.out_channels,
+                            kernel_size=2,
+                            stride=2,
+                        ),
                     )
                 )
 
@@ -250,10 +265,14 @@ class ConvNeXt(nn.Module):
 
         lastblock = block_setting[-1]
         lastconv_output_channels = (
-            lastblock.out_channels if lastblock.out_channels is not None else lastblock.input_channels
+            lastblock.out_channels
+            if lastblock.out_channels is not None
+            else lastblock.input_channels
         )
         self.classifier = nn.Sequential(
-            norm_layer(lastconv_output_channels), nn.Flatten(1), nn.Linear(lastconv_output_channels, num_classes)
+            norm_layer(lastconv_output_channels),
+            nn.Flatten(1),
+            nn.Linear(lastconv_output_channels, num_classes),
         )
 
         for m in self.modules():
@@ -263,8 +282,8 @@ class ConvNeXt(nn.Module):
                     nn.init.zeros_(m.bias)
 
     def forward(self, x: Tensor) -> Tensor:
-        x = self.features(x)    # [B, 3, 224, 224] -> [B, 768, 7, 7]
-        x = self.avgpool(x)     # [B, 768, 7, 7] -> [B, 768, 1, 1]
+        x = self.features(x)  # [B, 3, 224, 224] -> [B, 768, 7, 7]
+        x = self.avgpool(x)  # [B, 768, 7, 7] -> [B, 768, 1, 1]
         x = self.classifier(x)  # [B, 768, 7, 7] -> [B, 768] -> [B, num_classes]
         return x
 
@@ -279,7 +298,9 @@ def _convnext(
     if weights is not None:
         _ovewrite_named_param(kwargs, "num_classes", len(weights.meta["categories"]))
 
-    model = ConvNeXt(block_setting, stochastic_depth_prob=stochastic_depth_prob, **kwargs)
+    model = ConvNeXt(
+        block_setting, stochastic_depth_prob=stochastic_depth_prob, **kwargs
+    )
 
     if weights is not None:
         model.load_state_dict(weights.get_state_dict(progress=progress))
@@ -371,7 +392,12 @@ class ConvNeXt_Large_Weights(WeightsEnum):
     DEFAULT = IMAGENET1K_V1
 
 
-def convnext_tiny(*, weights: Optional[ConvNeXt_Tiny_Weights] = None, progress: bool = True, **kwargs: Any) -> ConvNeXt:
+def convnext_tiny(
+    *,
+    weights: Optional[ConvNeXt_Tiny_Weights] = None,
+    progress: bool = True,
+    **kwargs: Any,
+) -> ConvNeXt:
     weights = ConvNeXt_Tiny_Weights.verify(weights)
 
     block_setting = [
@@ -384,7 +410,12 @@ def convnext_tiny(*, weights: Optional[ConvNeXt_Tiny_Weights] = None, progress: 
     return _convnext(block_setting, stochastic_depth_prob, weights, progress, **kwargs)
 
 
-def convnext_small(*, weights: Optional[ConvNeXt_Small_Weights] = None, progress: bool = True, **kwargs: Any) -> ConvNeXt:
+def convnext_small(
+    *,
+    weights: Optional[ConvNeXt_Small_Weights] = None,
+    progress: bool = True,
+    **kwargs: Any,
+) -> ConvNeXt:
     weights = ConvNeXt_Small_Weights.verify(weights)
 
     block_setting = [
@@ -397,7 +428,12 @@ def convnext_small(*, weights: Optional[ConvNeXt_Small_Weights] = None, progress
     return _convnext(block_setting, stochastic_depth_prob, weights, progress, **kwargs)
 
 
-def convnext_base(*, weights: Optional[ConvNeXt_Base_Weights] = None, progress: bool = True, **kwargs: Any) -> ConvNeXt:
+def convnext_base(
+    *,
+    weights: Optional[ConvNeXt_Base_Weights] = None,
+    progress: bool = True,
+    **kwargs: Any,
+) -> ConvNeXt:
     weights = ConvNeXt_Base_Weights.verify(weights)
 
     block_setting = [
@@ -410,7 +446,12 @@ def convnext_base(*, weights: Optional[ConvNeXt_Base_Weights] = None, progress: 
     return _convnext(block_setting, stochastic_depth_prob, weights, progress, **kwargs)
 
 
-def convnext_large(*, weights: Optional[ConvNeXt_Large_Weights] = None, progress: bool = True, **kwargs: Any) -> ConvNeXt:
+def convnext_large(
+    *,
+    weights: Optional[ConvNeXt_Large_Weights] = None,
+    progress: bool = True,
+    **kwargs: Any,
+) -> ConvNeXt:
     weights = ConvNeXt_Large_Weights.verify(weights)
 
     block_setting = [
@@ -424,7 +465,11 @@ def convnext_large(*, weights: Optional[ConvNeXt_Large_Weights] = None, progress
 
 
 if __name__ == "__main__":
-    device = "cuda:0" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+    device = (
+        "cuda:0"
+        if torch.cuda.is_available()
+        else ("mps" if torch.backends.mps.is_available() else "cpu")
+    )
 
     x = torch.ones(1, 3, 224, 224).to(device)
     model = convnext_tiny(weights=ConvNeXt_Tiny_Weights.DEFAULT).to(device)
@@ -432,7 +477,7 @@ if __name__ == "__main__":
     model.eval()
     with torch.inference_mode():
         y = model(x)
-    print(y.size()) # [1, 1000]
+    print(y.size())  # [1, 1000]
 
     # 预处理方式
     transform = ConvNeXt_Tiny_Weights.DEFAULT.transforms()
@@ -447,13 +492,13 @@ if __name__ == "__main__":
 
     # 查看结构
     if False:
-        onnx_path = 'convnext_tiny.onnx'
+        onnx_path = "convnext_tiny.onnx"
         torch.onnx.export(
             model,
             x,
             onnx_path,
-            input_names=['images'],
-            output_names=['classes'],
+            input_names=["images"],
+            output_names=["classes"],
         )
         import onnx
         from onnxsim import simplify
@@ -465,4 +510,4 @@ if __name__ == "__main__":
         model_simple, check = simplify(model_)
         assert check, "Simplified ONNX model could not be validated"
         onnx.save(model_simple, onnx_path)
-        print('finished exporting ' + onnx_path)
+        print("finished exporting " + onnx_path)

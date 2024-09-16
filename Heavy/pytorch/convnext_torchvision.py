@@ -2,7 +2,11 @@ import torch
 from torch import nn
 from torchvision import models
 
-device = "cuda:0" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+device = (
+    "cuda:0"
+    if torch.cuda.is_available()
+    else ("mps" if torch.backends.mps.is_available() else "cpu")
+)
 
 x = torch.ones(1, 3, 224, 224).to(device)
 
@@ -11,7 +15,7 @@ model.classifier[-1] = nn.Linear(model.classifier[-1].in_features, 10)
 model.to(device)
 
 for name, param in model.named_parameters():
-    if 'classifier' not in name:
+    if "classifier" not in name:
         param.requires_grad = False
     else:
         print(name)
@@ -25,7 +29,7 @@ params = [param for param in model.parameters() if param.requires_grad]
 model.eval()
 with torch.inference_mode():
     y = model(x)
-print(y.size()) # [1, 10]
+print(y.size())  # [1, 10]
 
 # 预处理方式
 transform = models.ConvNeXt_Tiny_Weights.DEFAULT.transforms()

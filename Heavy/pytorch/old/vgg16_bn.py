@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.nn.modules.container import T
 
 from torchvision import models
+
 models.vgg16_bn()
 
 from torchsummary import summary
@@ -14,16 +15,13 @@ class Vgg16_bn(nn.Module):
 
         # 13
         self.features = nn.Sequential(
-            self.__make_layer(3,   64,  False),
-            self.__make_layer(64,  64,  True),
-
-            self.__make_layer(64, 128,  False),
+            self.__make_layer(3, 64, False),
+            self.__make_layer(64, 64, True),
+            self.__make_layer(64, 128, False),
             self.__make_layer(128, 128, True),
-
             self.__make_layer(128, 256, False),
             self.__make_layer(256, 256, False),
             self.__make_layer(256, 256, True),
-
             self.__make_layer(256, 512, False),
             self.__make_layer(512, 512, False),
             self.__make_layer(512, 512, True),
@@ -43,9 +41,8 @@ class Vgg16_bn(nn.Module):
             nn.Linear(4096, 4096, bias=True),
             nn.ReLU(inplace=True),
             nn.Dropout(p=0.5, inplace=False),
-            nn.Linear(4096, classes, bias=True)
+            nn.Linear(4096, classes, bias=True),
         )
-
 
     def forward(self, x):
         batch_size = x.size(0)
@@ -55,28 +52,46 @@ class Vgg16_bn(nn.Module):
         output = self.classifier(x)
         return output
 
-
-
-    def __make_layer(self,in_channels, out_channels, max_pool=True):
+    def __make_layer(self, in_channels, out_channels, max_pool=True):
         layers = []
-        layers.append(nn.Conv2d(in_channels, out_channels, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
-        layers.append(nn.BatchNorm2d(out_channels, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True))
+        layers.append(
+            nn.Conv2d(
+                in_channels,
+                out_channels,
+                kernel_size=(3, 3),
+                stride=(1, 1),
+                padding=(1, 1),
+            )
+        )
+        layers.append(
+            nn.BatchNorm2d(
+                out_channels,
+                eps=1e-05,
+                momentum=0.1,
+                affine=True,
+                track_running_stats=True,
+            )
+        )
         layers.append(nn.ReLU(inplace=True))
 
         # 添加池化层
         if max_pool:
-            layers.append(nn.MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False))
+            layers.append(
+                nn.MaxPool2d(
+                    kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False
+                )
+            )
 
         return nn.Sequential(*layers)
 
 
 if __name__ == "__main__":
     model = Vgg16_bn(5)
-    
+
     x = torch.ones(10, 3, 224, 224)
     y_predict = model(x)
-    print(y_predict.size()) # torch.Size([10, 5])
-    print('*' * 50)
+    print(y_predict.size())  # torch.Size([10, 5])
+    print("*" * 50)
     print(model)
 
 # VGG16_BN
@@ -89,11 +104,11 @@ if __name__ == "__main__":
 #     (3): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
 #     (4): BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)      1
 #     (5): ReLU(inplace=True)
-#     (6): MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False)       
+#     (6): MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False)
 
 
 #     (7): Conv2d(64, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-#     (8): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)     0   
+#     (8): BatchNorm2d(128, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)     0
 #     (9): ReLU(inplace=True)
 
 #     (10): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))

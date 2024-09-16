@@ -22,13 +22,13 @@ def main():
     plt.imshow(img)
 
     # scaling pixel value and normalize
-    img = ((np.array(img) / 255.) - 0.5) / 0.5
+    img = ((np.array(img) / 255.0) - 0.5) / 0.5
 
     # Add the image to a batch where it's the only member.
-    img = (np.expand_dims(img, 0))
+    img = np.expand_dims(img, 0)
 
     # read class_indict
-    json_path = './class_indices.json'
+    json_path = "./class_indices.json"
     assert os.path.exists(json_path), "file: '{}' dose not exist.".format(json_path)
 
     json_file = open(json_path, "r")
@@ -44,8 +44,9 @@ def main():
     result = np.squeeze(model.predict(img))
     predict_class = np.argmax(result)
 
-    print_res = "class: {}   prob: {:.3}".format(class_indict[str(predict_class)],
-                                                 result[predict_class])
+    print_res = "class: {}   prob: {:.3}".format(
+        class_indict[str(predict_class)], result[predict_class]
+    )
     plt.title(print_res)
     print(print_res)
     plt.show()

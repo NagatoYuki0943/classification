@@ -1,9 +1,9 @@
-'''
+"""
 pytorch输入图片维度: [b, c, h, w]
 tf输入图片维度:      [b, h, w, c]
 
 model.predict(img)
-'''
+"""
 
 import os
 import json
@@ -29,13 +29,13 @@ def main():
     plt.imshow(img)
 
     # scaling pixel value to (0-1) 变为0~1
-    img = np.array(img) / 255.
+    img = np.array(img) / 255.0
 
     # 添加batch维度, [h, w, c] => [0, h, w, c]
-    img = (np.expand_dims(img, 0))
+    img = np.expand_dims(img, 0)
 
     # 获取id_to_class
-    json_path = './class_indices.json'
+    json_path = "./class_indices.json"
     assert os.path.exists(json_path), "file: '{}' dose not exist.".format(json_path)
 
     json_file = open(json_path, "r")
@@ -51,12 +51,13 @@ def main():
     result = np.squeeze(model.predict(img))
     predict_class = np.argmax(result)
 
-    print_res = "class: {}   prob: {:.3}".format(class_indict[str(predict_class)],
-                                                 result[predict_class])
+    print_res = "class: {}   prob: {:.3}".format(
+        class_indict[str(predict_class)], result[predict_class]
+    )
     plt.title(print_res)
     print(print_res)
     plt.show()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

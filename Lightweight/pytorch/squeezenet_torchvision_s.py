@@ -1,7 +1,7 @@
-'''
+"""
 使用的pytorch官方的代码
 1.1的第一个卷积核是3x3,1.0第一个卷积核是7x7,建议使用1.1
-'''
+"""
 
 from torchvision.models import squeezenet1_0, squeezenet1_1
 import torch
@@ -11,24 +11,25 @@ from typing import Any
 from torch.hub import load_state_dict_from_url
 
 
-__all__ = ['SqueezeNet', 'squeezenet1_0', 'squeezenet1_1']
+__all__ = ["SqueezeNet", "squeezenet1_0", "squeezenet1_1"]
 
 
 class Fire(nn.Module):
-    '''
+    """
     挤压网络
     x => squeeze => x       降低网络深度,加快计算
     x => expand1x1 => x1
     x => expand3x3 => x3
     拼接x1和x3, 最后返回
     out_channels = expand1x1_out + expand3x3_out
-    '''
+    """
+
     def __init__(
         self,
-        inplanes: int,          # in_channels
-        squeeze_planes: int,    # squeeze_channels
+        inplanes: int,  # in_channels
+        squeeze_planes: int,  # squeeze_channels
         expand1x1_planes: int,  # expand1x1_out_channels
-        expand3x3_planes: int   # expand3x3_out_channels
+        expand3x3_planes: int,  # expand3x3_out_channels
     ) -> None:
         super().__init__()
         self.inplanes = inplanes
@@ -40,31 +41,36 @@ class Fire(nn.Module):
         # 1x1和3x3接收squeeze的输出,最后拼接到一起
         self.expand1x1 = nn.Conv2d(squeeze_planes, expand1x1_planes, kernel_size=1)
         self.expand1x1_activation = nn.ReLU(inplace=True)
-        self.expand3x3 = nn.Conv2d(squeeze_planes, expand3x3_planes, kernel_size=3, padding=1)
+        self.expand3x3 = nn.Conv2d(
+            squeeze_planes, expand3x3_planes, kernel_size=3, padding=1
+        )
         self.expand3x3_activation = nn.ReLU(inplace=True)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.squeeze_activation(self.squeeze(x))
 
         # 1x1和3x3接收squeeze的输出,最后拼接到一起
-        return torch.cat([
-            self.expand1x1_activation(self.expand1x1(x)),
-            self.expand3x3_activation(self.expand3x3(x))
-        ], 1)
+        return torch.cat(
+            [
+                self.expand1x1_activation(self.expand1x1(x)),
+                self.expand3x3_activation(self.expand3x3(x)),
+            ],
+            1,
+        )
 
 
 class SqueezeNet(nn.Module):
     def __init__(
         self,
-        version: str = '1_0',   # 版本
-        num_classes: int = 1000 # 分类数
+        version: str = "1_0",  # 版本
+        num_classes: int = 1000,  # 分类数
     ) -> None:
         super().__init__()
         self.num_classes = num_classes
 
-        if version == '1_0':
+        if version == "1_0":
             self.features = nn.Sequential(
-                nn.Conv2d(3, 96, kernel_size=7, stride=2),          # 7x7
+                nn.Conv2d(3, 96, kernel_size=7, stride=2),  # 7x7
                 nn.ReLU(inplace=True),
                 nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True),
                 # in, squeeze expand1x1 expand3x3 out_channels = expand1x1 + expand3x3
@@ -79,9 +85,9 @@ class SqueezeNet(nn.Module):
                 nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True),
                 Fire(512, 64, 256, 256),
             )
-        elif version == '1_1':
+        elif version == "1_1":
             self.features = nn.Sequential(
-                nn.Conv2d(3, 64, kernel_size=3, stride=2),          # 3x3
+                nn.Conv2d(3, 64, kernel_size=3, stride=2),  # 3x3
                 nn.ReLU(inplace=True),
                 nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True),
                 # in, squeeze expand1x1 expand3x3    out_channels = expand1x1 + expand3x3
@@ -100,8 +106,10 @@ class SqueezeNet(nn.Module):
             # FIXME: Is this needed? SqueezeNet should only be called from the
             # FIXME: squeezenet1_x() functions
             # FIXME: This checking is not done for the other models
-            raise ValueError("Unsupported SqueezeNet version {version}:"
-                            "1_0 or 1_1 expected".format(version=version))
+            raise ValueError(
+                "Unsupported SqueezeNet version {version}:"
+                "1_0 or 1_1 expected".format(version=version)
+            )
 
         # 最后的分类,使用1x1Conv代替线性层
         # Final convolution is initialized differently from the rest
@@ -111,7 +119,7 @@ class SqueezeNet(nn.Module):
             nn.Dropout(p=0.5),
             final_conv,
             nn.ReLU(inplace=True),
-            nn.AdaptiveAvgPool2d((1, 1))    # 高宽缩小为1
+            nn.AdaptiveAvgPool2d((1, 1)),  # 高宽缩小为1
         )
 
         # 初始化权重
@@ -132,15 +140,17 @@ class SqueezeNet(nn.Module):
 
 
 model_urls = {
-    'squeezenet1_0': 'https://download.pytorch.org/models/squeezenet1_0-b66bff10.pth',
-    'squeezenet1_1': 'https://download.pytorch.org/models/squeezenet1_1-b8a52dc0.pth',
+    "squeezenet1_0": "https://download.pytorch.org/models/squeezenet1_0-b66bff10.pth",
+    "squeezenet1_1": "https://download.pytorch.org/models/squeezenet1_1-b8a52dc0.pth",
 }
 
 
-def _squeezenet(version: str, pretrained: bool, progress: bool, **kwargs: Any) -> SqueezeNet:
+def _squeezenet(
+    version: str, pretrained: bool, progress: bool, **kwargs: Any
+) -> SqueezeNet:
     model = SqueezeNet(version, **kwargs)
     if pretrained:
-        arch = 'squeezenet' + version
+        arch = "squeezenet" + version
         state_dict = load_state_dict_from_url(model_urls[arch], progress=progress)
         model.load_state_dict(state_dict)
     return model
@@ -155,7 +165,7 @@ def squeezenet1_0(pretrained=False, num_classes=1000, **kwargs: Any) -> SqueezeN
     Args:
         num_classes: 分类数
     """
-    return _squeezenet('1_0', pretrained, num_classes, **kwargs)
+    return _squeezenet("1_0", pretrained, num_classes, **kwargs)
 
 
 def squeezenet1_1(pretrained=False, num_classes=1000, **kwargs: Any) -> SqueezeNet:
@@ -168,11 +178,15 @@ def squeezenet1_1(pretrained=False, num_classes=1000, **kwargs: Any) -> SqueezeN
     Args:
         num_classes: 分类数
     """
-    return _squeezenet('1_1', pretrained, num_classes, **kwargs)
+    return _squeezenet("1_1", pretrained, num_classes, **kwargs)
 
 
 if __name__ == "__main__":
-    device = "cuda:0" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+    device = (
+        "cuda:0"
+        if torch.cuda.is_available()
+        else ("mps" if torch.backends.mps.is_available() else "cpu")
+    )
 
     x = torch.ones(1, 3, 224, 224).to(device)
     model = squeezenet1_1(pretrained=True)
@@ -182,4 +196,4 @@ if __name__ == "__main__":
     model.eval()
     with torch.inference_mode():
         y = model(x)
-    print(y.size()) # [1, 10]
+    print(y.size())  # [1, 10]

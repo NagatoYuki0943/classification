@@ -31,12 +31,13 @@ def main():
     train_ds, val_ds = generate_ds(data_root, im_height, im_width, batch_size)
 
     # create model
-    model = shufflenet_v2_x1_0(input_shape=(im_height, im_width, 3),
-                               num_classes=num_classes)
+    model = shufflenet_v2_x1_0(
+        input_shape=(im_height, im_width, 3), num_classes=num_classes
+    )
 
     # load weights
     # x1.0权重链接: https://pan.baidu.com/s/1M2mp98Si9eT9qT436DcdOw  密码: mhts
-    pre_weights_path = './shufflenetv2_x1_0.h5'
+    pre_weights_path = "./shufflenetv2_x1_0.h5"
     assert os.path.exists(pre_weights_path), "cannot find {}".format(pre_weights_path)
     model.load_weights(pre_weights_path, by_name=True, skip_mismatch=True)
 
@@ -46,12 +47,14 @@ def main():
     def scheduler(now_epoch):
         initial_lr = 0.1
         end_lr_rate = 0.1  # end_lr = initial_lr * end_lr_rate
-        rate = ((1 + math.cos(now_epoch * math.pi / epochs)) / 2) * (1 - end_lr_rate) + end_lr_rate  # cosine
+        rate = ((1 + math.cos(now_epoch * math.pi / epochs)) / 2) * (
+            1 - end_lr_rate
+        ) + end_lr_rate  # cosine
         new_lr = rate * initial_lr
 
         # writing lr into tensorboard
         with train_writer.as_default():
-            tf.summary.scalar('learning rate', data=new_lr, step=epoch)
+            tf.summary.scalar("learning rate", data=new_lr, step=epoch)
 
         return new_lr
 
@@ -59,11 +62,11 @@ def main():
     loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False)
     optimizer = tf.keras.optimizers.SGD(learning_rate=0.1, momentum=0.9)
 
-    train_loss = tf.keras.metrics.Mean(name='train_loss')
-    train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name='train_accuracy')
+    train_loss = tf.keras.metrics.Mean(name="train_loss")
+    train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name="train_accuracy")
 
-    val_loss = tf.keras.metrics.Mean(name='val_loss')
-    val_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name='val_accuracy')
+    val_loss = tf.keras.metrics.Mean(name="val_loss")
+    val_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name="val_accuracy")
 
     @tf.function
     def train_step(train_images, train_labels):
@@ -84,7 +87,7 @@ def main():
         val_loss(loss)
         val_accuracy(val_labels, output)
 
-    best_val_acc = 0.
+    best_val_acc = 0.0
     for epoch in range(epochs):
         train_loss.reset_states()  # clear history info
         train_accuracy.reset_states()  # clear history info
@@ -97,10 +100,9 @@ def main():
             train_step(images, labels)
 
             # print train process
-            train_bar.desc = "train epoch[{}/{}] loss:{:.3f}, acc:{:.3f}".format(epoch + 1,
-                                                                                 epochs,
-                                                                                 train_loss.result(),
-                                                                                 train_accuracy.result())
+            train_bar.desc = "train epoch[{}/{}] loss:{:.3f}, acc:{:.3f}".format(
+                epoch + 1, epochs, train_loss.result(), train_accuracy.result()
+            )
 
         # update learning rate
         optimizer.learning_rate = scheduler(epoch)
@@ -111,10 +113,9 @@ def main():
             val_step(images, labels)
 
             # print val process
-            val_bar.desc = "valid epoch[{}/{}] loss:{:.3f}, acc:{:.3f}".format(epoch + 1,
-                                                                               epochs,
-                                                                               val_loss.result(),
-                                                                               val_accuracy.result())
+            val_bar.desc = "valid epoch[{}/{}] loss:{:.3f}, acc:{:.3f}".format(
+                epoch + 1, epochs, val_loss.result(), val_accuracy.result()
+            )
         # writing training loss and acc
         with train_writer.as_default():
             tf.summary.scalar("loss", train_loss.result(), epoch)
@@ -131,5 +132,5 @@ def main():
             model.save_weights("./save_weights/shufflenetv2.ckpt", save_format="tf")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

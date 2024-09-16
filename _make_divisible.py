@@ -1,4 +1,4 @@
-def _make_divisible(v: float, divisor: int=8, min_value: int | None = None) -> int:
+def _make_divisible(v: float, divisor: int = 8, min_value: int | None = None) -> int:
     """
     将卷积核个数(输出通道个数)调整为最接近round_nearest的整数倍,就是8的整数倍,对硬件更加友好
     v:          输出通道个数
@@ -20,9 +20,9 @@ def _make_divisible(v: float, divisor: int=8, min_value: int | None = None) -> i
 
 
 if __name__ == "__main__":
-    print(_make_divisible(6, 8))    # 8
-    print(_make_divisible(7, 8))    # 8
-    print(_make_divisible(8, 8))    # 8
-    print(_make_divisible(10, 8))   # 16
-    print(_make_divisible(12, 8))   # 16
-    print(_make_divisible(14, 8))   # 16
+    print(_make_divisible(6, 8))  # 8
+    print(_make_divisible(7, 8))  # 8
+    print(_make_divisible(8, 8))  # 8
+    print(_make_divisible(10, 8))  # 16
+    print(_make_divisible(12, 8))  # 16
+    print(_make_divisible(14, 8))  # 16

@@ -1,6 +1,6 @@
-'''
+"""
 噼里啪啦Wz修改过,准确率没有降低,训练加快
-'''
+"""
 
 import torch
 import torch.nn as nn
@@ -12,19 +12,21 @@ class AlexNet(nn.Module):
         super(AlexNet, self).__init__()
         self.features = nn.Sequential(
             # 核心数降低 96 => 48
-            nn.Conv2d(3, 48, kernel_size=11, stride=4, padding=2),  # input[3, 224, 224]  output[48, 55, 55]  右下不够就舍弃
+            nn.Conv2d(
+                3, 48, kernel_size=11, stride=4, padding=2
+            ),  # input[3, 224, 224]  output[48, 55, 55]  右下不够就舍弃
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=3, stride=2),                  # output[48, 27, 27]
-            nn.Conv2d(48, 128, kernel_size=5, padding=2),           # output[128, 27, 27]
+            nn.MaxPool2d(kernel_size=3, stride=2),  # output[48, 27, 27]
+            nn.Conv2d(48, 128, kernel_size=5, padding=2),  # output[128, 27, 27]
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=3, stride=2),                  # output[128, 13, 13]
-            nn.Conv2d(128, 192, kernel_size=3, padding=1),          # output[192, 13, 13]
+            nn.MaxPool2d(kernel_size=3, stride=2),  # output[128, 13, 13]
+            nn.Conv2d(128, 192, kernel_size=3, padding=1),  # output[192, 13, 13]
             nn.ReLU(inplace=True),
-            nn.Conv2d(192, 192, kernel_size=3, padding=1),          # output[192, 13, 13]
+            nn.Conv2d(192, 192, kernel_size=3, padding=1),  # output[192, 13, 13]
             nn.ReLU(inplace=True),
-            nn.Conv2d(192, 128, kernel_size=3, padding=1),          # output[128, 13, 13]
+            nn.Conv2d(192, 128, kernel_size=3, padding=1),  # output[128, 13, 13]
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=3, stride=2),                  # output[128, 6, 6]
+            nn.MaxPool2d(kernel_size=3, stride=2),  # output[128, 6, 6]
         )
         self.classifier = nn.Sequential(
             nn.Dropout(p=0.5),
@@ -45,15 +47,15 @@ class AlexNet(nn.Module):
         return x
 
     def _initialize_weights(self):
-        '''
+        """
         初始化权重
-        '''
+        """
         # 遍历所有的层结构
         for m in self.modules():
             # 是属于哪一个类别
             if isinstance(m, nn.Conv2d):
                 # 初始化数据 normal 正态分布
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
                 if m.bias is not None:
                     # 偏置初始化为0
                     nn.init.constant_(m.bias, 0)
@@ -65,7 +67,11 @@ class AlexNet(nn.Module):
 
 
 if __name__ == "__main__":
-    device = "cuda:0" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+    device = (
+        "cuda:0"
+        if torch.cuda.is_available()
+        else ("mps" if torch.backends.mps.is_available() else "cpu")
+    )
 
     x = torch.ones(1, 3, 224, 224).to(device)
     model = AlexNet(num_classes=5).to(device)
@@ -73,7 +79,7 @@ if __name__ == "__main__":
     model.eval()
     with torch.inference_mode():
         y = model(x)
-    print(y.size()) # torch.Size([1, 5])
+    print(y.size())  # torch.Size([1, 5])
 
     print(model)
     # AlexNet(

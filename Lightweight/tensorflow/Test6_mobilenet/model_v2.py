@@ -1,10 +1,9 @@
-'''
+"""
 keras中有专门的DW卷积
 不需要写维度
 layers.DepthwiseConv2D(kernel_size=3, padding='SAME', strides=stride, use_bias=False)
 
-'''
-
+"""
 
 from tensorflow.keras import layers, Model, Sequential
 
@@ -31,15 +30,25 @@ def _make_divisible(ch, divisor=8, min_ch=None):
 
 
 class ConvBNReLU(layers.Layer):
-    '''
+    """
     卷积层 = 卷积+ BN + ReLU6
     不负责DW卷积,keras自带了DW卷积
-    '''
+    """
+
     def __init__(self, out_channel, kernel_size=3, stride=1, **kwargs):
         super().__init__(**kwargs)
-        self.conv = layers.Conv2D(filters=out_channel, kernel_size=kernel_size, strides=stride, padding='SAME', use_bias=False, name='Conv2d')
-        self.bn = layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name='BatchNorm')
-        self.activation = layers.ReLU(max_value=6.0)    # ReLU6
+        self.conv = layers.Conv2D(
+            filters=out_channel,
+            kernel_size=kernel_size,
+            strides=stride,
+            padding="SAME",
+            use_bias=False,
+            name="Conv2d",
+        )
+        self.bn = layers.BatchNormalization(
+            momentum=0.9, epsilon=1e-5, name="BatchNorm"
+        )
+        self.activation = layers.ReLU(max_value=6.0)  # ReLU6
 
     def call(self, inputs, training=False):
         x = self.conv(inputs)
@@ -49,18 +58,19 @@ class ConvBNReLU(layers.Layer):
 
 
 class InvertedResidual(layers.Layer):
-    '''
-    倒残差结构
-    残差:   两端channel多,中间channel少
-​       降维 --> 升维
-    倒残差: 两端channel少,中间channel多
-​       升维 --> 降维
-    '''
+    """
+        倒残差结构
+        残差:   两端channel多,中间channel少
+    ​       降维 --> 升维
+        倒残差: 两端channel少,中间channel多
+    ​       升维 --> 降维
+    """
+
     def __init__(self, in_channel, out_channel, stride, expand_ratio, **kwargs):
-        '''
+        """
         expand_ratio: 扩展因子,表格中的t
 
-        '''
+        """
         super().__init__(**kwargs)
 
         # 第一层卷积核个数,第一层输出维度
@@ -73,18 +83,41 @@ class InvertedResidual(layers.Layer):
         # 扩展因子是否为1,第一层为1就不需要使用第一个 1x1 的卷积层
         if expand_ratio != 1:
             # 1x1 pointwise conv
-            layer_list.append(ConvBNReLU(out_channel=self.hidden_channel, kernel_size=1, name='expand'))
+            layer_list.append(
+                ConvBNReLU(
+                    out_channel=self.hidden_channel, kernel_size=1, name="expand"
+                )
+            )
 
-        layer_list.extend([
-            # 3x3 depthwise conv  DW卷积,in_channel = out_channel = gropus
-            layers.DepthwiseConv2D(kernel_size=3, padding='SAME', strides=stride, use_bias=False, name='depthwise'),
-            layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name='depthwise/BatchNorm'),
-            layers.ReLU(max_value=6.0),
-            # 1x1 pointwise conv(linear) PW卷积,变换维度,不使用激活函数,就是线性激活
-            layers.Conv2D(filters=out_channel, kernel_size=1, strides=1, padding='SAME', use_bias=False, name='project'),
-            layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name='project/BatchNorm')
-        ])
-        self.main_branch = Sequential(layer_list, name='expanded_conv')
+        layer_list.extend(
+            [
+                # 3x3 depthwise conv  DW卷积,in_channel = out_channel = gropus
+                layers.DepthwiseConv2D(
+                    kernel_size=3,
+                    padding="SAME",
+                    strides=stride,
+                    use_bias=False,
+                    name="depthwise",
+                ),
+                layers.BatchNormalization(
+                    momentum=0.9, epsilon=1e-5, name="depthwise/BatchNorm"
+                ),
+                layers.ReLU(max_value=6.0),
+                # 1x1 pointwise conv(linear) PW卷积,变换维度,不使用激活函数,就是线性激活
+                layers.Conv2D(
+                    filters=out_channel,
+                    kernel_size=1,
+                    strides=1,
+                    padding="SAME",
+                    use_bias=False,
+                    name="project",
+                ),
+                layers.BatchNormalization(
+                    momentum=0.9, epsilon=1e-5, name="project/BatchNorm"
+                ),
+            ]
+        )
+        self.main_branch = Sequential(layer_list, name="expanded_conv")
 
     def call(self, inputs, training=False, **kwargs):
         if self.use_shortcut:
@@ -93,12 +126,14 @@ class InvertedResidual(layers.Layer):
             return self.main_branch(inputs, training=training)
 
 
-def MobileNetV2(im_height=224,
-                im_width=224,
-                num_classes=1000,
-                alpha=1.0,          # 调整卷积核个数参数,默认为1
-                round_nearest=8,    # 调整为8的倍数
-                include_top=True):
+def MobileNetV2(
+    im_height=224,
+    im_width=224,
+    num_classes=1000,
+    alpha=1.0,  # 调整卷积核个数参数,默认为1
+    round_nearest=8,  # 调整为8的倍数
+    include_top=True,
+):
     block = InvertedResidual
     # 第一层输入的个数   将卷积核个数(输出通道个数)调整为round_nearest的整数倍 就是调整为8个整数倍
     input_channel = _make_divisible(32 * alpha, round_nearest)
@@ -119,10 +154,10 @@ def MobileNetV2(im_height=224,
         [6, 320, 1, 1],
     ]
 
-    input_image = layers.Input(shape=(im_height, im_width, 3), dtype='float32')
+    input_image = layers.Input(shape=(im_height, im_width, 3), dtype="float32")
 
     # conv1 layer 第一层卷积     3  32*alpha
-    x = ConvBNReLU(input_channel, stride=2, name='Conv')(input_image)
+    x = ConvBNReLU(input_channel, stride=2, name="Conv")(input_image)
 
     # 一系列block
     for idx, (t, c, n, s) in enumerate(inverted_residual_setting):
@@ -132,20 +167,17 @@ def MobileNetV2(im_height=224,
             # stride只有第一次为2,其余的为1
             stride = s if i == 0 else 1
             #         x的输出维度 [b, h, w, c] 最后一个是维度
-            x = block(x.shape[-1],
-                        output_channel,
-                        stride,
-                        expand_ratio=t)(x)
+            x = block(x.shape[-1], output_channel, stride, expand_ratio=t)(x)
 
     # 输出层
-    x = ConvBNReLU(last_channel, kernel_size=1, name='Conv_1')(x)
+    x = ConvBNReLU(last_channel, kernel_size=1, name="Conv_1")(x)
 
     # 分类层
     if include_top is True:
         # building classifier
         x = layers.GlobalAveragePooling2D()(x)  # pool + flatten
         x = layers.Dropout(0.2)(x)
-        output = layers.Dense(num_classes, name='Logits')(x)
+        output = layers.Dense(num_classes, name="Logits")(x)
     else:
         output = x
 

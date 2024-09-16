@@ -39,7 +39,11 @@ for model in models_list:
     # eva_large_patch14_336.in22k_ft_in1k
     # eva_large_patch14_336.in22k_ft_in22k_in1k
 
-device = "cuda:0" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+device = (
+    "cuda:0"
+    if torch.cuda.is_available()
+    else ("mps" if torch.backends.mps.is_available() else "cpu")
+)
 
 x = torch.ones(1, 3, 224, 224).to(device)
 model = models.eva.eva_giant_patch14_224(pretrained=False, num_classes=5).to(device)
@@ -47,12 +51,12 @@ model = models.eva.eva_giant_patch14_224(pretrained=False, num_classes=5).to(dev
 model.eval()
 with torch.inference_mode():
     y = model(x)
-print(y.size()) # [1, 5]
+print(y.size())  # [1, 5]
 
 
-#---------------------------------------------------------------------#
+# ---------------------------------------------------------------------#
 #   创建对应的图片预处理，配合PIL.Image.Open('path').convert('RGB')
-#---------------------------------------------------------------------#
+# ---------------------------------------------------------------------#
 config = resolve_data_config({}, model=model)
 print(config)
 # {'input_size': (3, 224, 224), 'interpolation': 'bicubic', 'mean': (0.48145466, 0.4578275, 0.40821073), 'std': (0.26862954, 0.26130258, 0.27577711), 'crop_pct': 0.9, 'crop_mode': 'center'}
@@ -69,13 +73,13 @@ print(transform)
 
 # 查看结构
 if False:
-    onnx_path = 'eva_giant_patch14_224.onnx'
+    onnx_path = "eva_giant_patch14_224.onnx"
     torch.onnx.export(
         model,
         x,
         onnx_path,
-        input_names=['images'],
-        output_names=['classes'],
+        input_names=["images"],
+        output_names=["classes"],
     )
     import onnx
     from onnxsim import simplify
@@ -87,4 +91,4 @@ if False:
     model_simple, check = simplify(model_)
     assert check, "Simplified ONNX model could not be validated"
     onnx.save(model_simple, onnx_path)
-    print('finished exporting ' + onnx_path)
+    print("finished exporting " + onnx_path)

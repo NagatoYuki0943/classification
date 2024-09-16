@@ -9,13 +9,19 @@ import torch
 import torch.nn as nn
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
-from timm.layers import trunc_normal_, DropPath, to_2tuple, get_padding, SelectAdaptivePool2d
+from timm.layers import (
+    trunc_normal_,
+    DropPath,
+    to_2tuple,
+    get_padding,
+    SelectAdaptivePool2d,
+)
 from timm.models._builder import build_model_with_cfg
 from timm.models._manipulate import checkpoint_seq
 from timm.models._registry import register_model, generate_default_cfgs
 
 
-#----------------------------------------#
+# ----------------------------------------#
 #   InceptionDWConv2d
 #                in
 #                 │
@@ -26,18 +32,17 @@ from timm.models._registry import register_model, generate_default_cfgs
 #      └─────── concat ──────┴───────┘
 #                 │
 #                out
-#----------------------------------------#
+# ----------------------------------------#
 class InceptionDWConv2d(nn.Module):
-    """ Inception depthwise convolution
-    """
+    """Inception depthwise convolution"""
 
     def __init__(
-            self,
-            in_chs,
-            square_kernel_size=3,
-            band_kernel_size=11,
-            branch_ratio=0.125,
-            dilation=1,
+        self,
+        in_chs,
+        square_kernel_size=3,
+        band_kernel_size=11,
+        branch_ratio=0.125,
+        dilation=1,
     ):
         super().__init__()
         # 3条Conv分支的channel数,默认为输入通道数的1/8
@@ -46,57 +51,69 @@ class InceptionDWConv2d(nn.Module):
         band_padding = get_padding(band_kernel_size, dilation=dilation)
         # 3x3DWConv
         self.dwconv_hw = nn.Conv2d(
-            gc, gc, square_kernel_size,
-            padding=square_padding, dilation=dilation, groups=gc)
+            gc,
+            gc,
+            square_kernel_size,
+            padding=square_padding,
+            dilation=dilation,
+            groups=gc,
+        )
         # 1x11DWConv
         self.dwconv_w = nn.Conv2d(
-            gc, gc, (1, band_kernel_size),
-            padding=(0, band_padding), dilation=(1, dilation), groups=gc)
+            gc,
+            gc,
+            (1, band_kernel_size),
+            padding=(0, band_padding),
+            dilation=(1, dilation),
+            groups=gc,
+        )
         # 11x1DWConv
         self.dwconv_h = nn.Conv2d(
-            gc, gc, (band_kernel_size, 1),
-            padding=(band_padding, 0), dilation=(dilation, 1), groups=gc)
+            gc,
+            gc,
+            (band_kernel_size, 1),
+            padding=(band_padding, 0),
+            dilation=(dilation, 1),
+            groups=gc,
+        )
         self.split_indexes = (in_chs - 3 * gc, gc, gc, gc)
 
     def forward(self, x):
         # [B, 96, 56, 56] -> [B, 60, 56, 56], [B, 12, 56, 56], [B, 12, 56, 56], [B, 12, 56, 56]
         x_id, x_hw, x_w, x_h = torch.split(x, self.split_indexes, dim=1)
-        return torch.cat((
-            x_id,
-            self.dwconv_hw(x_hw),
-            self.dwconv_w(x_w),
-            self.dwconv_h(x_h)
-            ), dim=1,
+        return torch.cat(
+            (x_id, self.dwconv_hw(x_hw), self.dwconv_w(x_w), self.dwconv_h(x_h)),
+            dim=1,
         )
 
 
-#-------------------------------------#
+# -------------------------------------#
 #   1x1Conv代替全连接层
 #   宽高不为1,不是注意力
-#-------------------------------------#
+# -------------------------------------#
 class ConvMlp(nn.Module):
-    """ MLP using 1x1 convs that keeps spatial dims
+    """MLP using 1x1 convs that keeps spatial dims
     copied from timm: https://github.com/huggingface/pytorch-image-models/blob/v0.6.11/timm/models/layers/mlp.py
     """
 
     def __init__(
-            self,
-            in_features,
-            hidden_features=None,
-            out_features=None,
-            act_layer=nn.ReLU,
-            norm_layer=None,
-            bias=True,
-            drop=0.,
+        self,
+        in_features,
+        hidden_features=None,
+        out_features=None,
+        act_layer=nn.ReLU,
+        norm_layer=None,
+        bias=True,
+        drop=0.0,
     ):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
         bias = to_2tuple(bias)
 
-        #-------------------------------------#
+        # -------------------------------------#
         #   使用k=1的Conv代替两个全连接层
-        #-------------------------------------#
+        # -------------------------------------#
         self.fc1 = nn.Conv2d(in_features, hidden_features, kernel_size=1, bias=bias[0])
         self.norm = norm_layer(hidden_features) if norm_layer else nn.Identity()
         self.act = act_layer()
@@ -104,28 +121,27 @@ class ConvMlp(nn.Module):
         self.fc2 = nn.Conv2d(hidden_features, out_features, kernel_size=1, bias=bias[1])
 
     def forward(self, x):
-        x = self.fc1(x)     # [B, C, H, W] -> [B, n*C, H, W]
+        x = self.fc1(x)  # [B, C, H, W] -> [B, n*C, H, W]
         x = self.norm(x)
         x = self.act(x)
         x = self.drop(x)
-        x = self.fc2(x)     # [B, n*C, H, W] -> [B, C, H, W]
+        x = self.fc2(x)  # [B, n*C, H, W] -> [B, C, H, W]
         return x
 
 
 class MlpClassifierHead(nn.Module):
-    """ MLP classification head
-    """
+    """MLP classification head"""
 
     def __init__(
-            self,
-            dim,
-            num_classes=1000,
-            pool_type='avg',
-            mlp_ratio=3,
-            act_layer=nn.GELU,
-            norm_layer=partial(nn.LayerNorm, eps=1e-6),
-            drop=0.,
-            bias=True
+        self,
+        dim,
+        num_classes=1000,
+        pool_type="avg",
+        mlp_ratio=3,
+        act_layer=nn.GELU,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6),
+        drop=0.0,
+        bias=True,
     ):
         super().__init__()
         self.global_pool = SelectAdaptivePool2d(pool_type=pool_type, flatten=True)
@@ -138,16 +154,16 @@ class MlpClassifierHead(nn.Module):
         self.drop = nn.Dropout(drop)
 
     def forward(self, x):
-        x = self.global_pool(x) # [B, 784, 7, 7] -> [B, 784]
-        x = self.fc1(x)         # [B, 784] -> [B, 2304]
+        x = self.global_pool(x)  # [B, 784, 7, 7] -> [B, 784]
+        x = self.fc1(x)  # [B, 784] -> [B, 2304]
         x = self.act(x)
         x = self.norm(x)
         x = self.drop(x)
-        x = self.fc2(x)         # [B, 2304] -> [B, num_classes]
+        x = self.fc2(x)  # [B, 2304] -> [B, num_classes]
         return x
 
 
-#--------------------------#
+# --------------------------#
 #    InceptionNeXtBlock
 #             in
 #              │
@@ -162,9 +178,9 @@ class MlpClassifierHead(nn.Module):
 #    └────────add
 #              │
 #             out
-#--------------------------#
+# --------------------------#
 class MetaNeXtBlock(nn.Module):
-    """ MetaNeXtBlock Block
+    """MetaNeXtBlock Block
     Args:
         dim (int): Number of input channels.
         drop_path (float): Stochastic depth rate. Default: 0.0
@@ -172,31 +188,32 @@ class MetaNeXtBlock(nn.Module):
     """
 
     def __init__(
-            self,
-            dim,
-            dilation=1,
-            token_mixer=InceptionDWConv2d,
-            norm_layer=nn.BatchNorm2d,
-            mlp_layer=ConvMlp,
-            mlp_ratio=4,
-            act_layer=nn.GELU,
-            ls_init_value=1e-6,
-            drop_path=0.,
-
+        self,
+        dim,
+        dilation=1,
+        token_mixer=InceptionDWConv2d,
+        norm_layer=nn.BatchNorm2d,
+        mlp_layer=ConvMlp,
+        mlp_ratio=4,
+        act_layer=nn.GELU,
+        ls_init_value=1e-6,
+        drop_path=0.0,
     ):
         super().__init__()
         self.token_mixer = token_mixer(dim, dilation=dilation)
         self.norm = norm_layer(dim)
         self.mlp = mlp_layer(dim, int(mlp_ratio * dim), act_layer=act_layer)
         # layer scale
-        self.gamma = nn.Parameter(ls_init_value * torch.ones(dim)) if ls_init_value else None
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.gamma = (
+            nn.Parameter(ls_init_value * torch.ones(dim)) if ls_init_value else None
+        )
+        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
     def forward(self, x):
-        shortcut = x            # [B, 96, 56, 56]
-        x = self.token_mixer(x) # [B, 96, 56, 56] -> [B, 96, 56, 56]
+        shortcut = x  # [B, 96, 56, 56]
+        x = self.token_mixer(x)  # [B, 96, 56, 56] -> [B, 96, 56, 56]
         x = self.norm(x)
-        x = self.mlp(x)         # [B, 96, 56, 56] -> [B, 96, 56, 56]
+        x = self.mlp(x)  # [B, 96, 56, 56] -> [B, 96, 56, 56]
         # layer scale
         if self.gamma is not None:
             x = x.mul(self.gamma.reshape(1, -1, 1, 1))
@@ -204,24 +221,24 @@ class MetaNeXtBlock(nn.Module):
         return x
 
 
-#-----------------------#
+# -----------------------#
 #   4个stage的每个stage
 #   包含下采样
-#-----------------------#
+# -----------------------#
 class MetaNeXtStage(nn.Module):
     def __init__(
-            self,
-            in_chs,
-            out_chs,
-            stride=2,
-            depth=2,
-            dilation=(1, 1),
-            drop_path_rates=None,
-            ls_init_value=1.0,
-            token_mixer=InceptionDWConv2d,
-            act_layer=nn.GELU,
-            norm_layer=None,
-            mlp_ratio=4,
+        self,
+        in_chs,
+        out_chs,
+        stride=2,
+        depth=2,
+        dilation=(1, 1),
+        drop_path_rates=None,
+        ls_init_value=1.0,
+        token_mixer=InceptionDWConv2d,
+        act_layer=nn.GELU,
+        norm_layer=None,
+        mlp_ratio=4,
     ):
         super().__init__()
         self.grad_checkpointing = False
@@ -239,23 +256,27 @@ class MetaNeXtStage(nn.Module):
         else:
             self.downsample = nn.Identity()
 
-        drop_path_rates = drop_path_rates or [0.] * depth
+        drop_path_rates = drop_path_rates or [0.0] * depth
         stage_blocks = []
         for i in range(depth):
-            stage_blocks.append(MetaNeXtBlock(
-                dim=out_chs,
-                dilation=dilation[1],
-                drop_path=drop_path_rates[i],
-                ls_init_value=ls_init_value,
-                token_mixer=token_mixer,
-                act_layer=act_layer,
-                norm_layer=norm_layer,
-                mlp_ratio=mlp_ratio,
-            ))
+            stage_blocks.append(
+                MetaNeXtBlock(
+                    dim=out_chs,
+                    dilation=dilation[1],
+                    drop_path=drop_path_rates[i],
+                    ls_init_value=ls_init_value,
+                    token_mixer=token_mixer,
+                    act_layer=act_layer,
+                    norm_layer=norm_layer,
+                    mlp_ratio=mlp_ratio,
+                )
+            )
         self.blocks = nn.Sequential(*stage_blocks)
 
-    def forward(self, x):      #           第一次不需要下采样
-        x = self.downsample(x) # [B, 96, 56, 56] -> [B, 96, 56, 56] -> [B, 192, 28, 28] -> [B, 384, 14, 14] -> [B, 784, 7, 7]
+    def forward(self, x):  #           第一次不需要下采样
+        x = self.downsample(
+            x
+        )  # [B, 96, 56, 56] -> [B, 96, 56, 56] -> [B, 192, 28, 28] -> [B, 384, 14, 14] -> [B, 784, 7, 7]
         if self.grad_checkpointing and not torch.jit.is_scripting():
             x = checkpoint_seq(self.blocks, x)
         else:
@@ -264,7 +285,7 @@ class MetaNeXtStage(nn.Module):
 
 
 class MetaNeXt(nn.Module):
-    r""" MetaNeXt
+    r"""MetaNeXt
         A PyTorch impl of : `InceptionNeXt: When Inception Meets ConvNeXt` - https://arxiv.org/abs/2303.16900
 
     Args:
@@ -283,21 +304,21 @@ class MetaNeXt(nn.Module):
     """
 
     def __init__(
-            self,
-            in_chans=3,
-            num_classes=1000,
-            global_pool='avg',
-            output_stride=32,
-            depths=(3, 3, 9, 3),
-            dims=(96, 192, 384, 768),
-            token_mixers=InceptionDWConv2d,
-            norm_layer=nn.BatchNorm2d,
-            act_layer=nn.GELU,
-            mlp_ratios=(4, 4, 4, 3),
-            head_fn=MlpClassifierHead,
-            drop_rate=0.,
-            drop_path_rate=0.,
-            ls_init_value=1e-6,
+        self,
+        in_chans=3,
+        num_classes=1000,
+        global_pool="avg",
+        output_stride=32,
+        depths=(3, 3, 9, 3),
+        dims=(96, 192, 384, 768),
+        token_mixers=InceptionDWConv2d,
+        norm_layer=nn.BatchNorm2d,
+        act_layer=nn.GELU,
+        mlp_ratios=(4, 4, 4, 3),
+        head_fn=MlpClassifierHead,
+        drop_rate=0.0,
+        drop_path_rate=0.0,
+        ls_init_value=1e-6,
     ):
         super().__init__()
 
@@ -312,11 +333,13 @@ class MetaNeXt(nn.Module):
         self.feature_info = []
 
         self.stem = nn.Sequential(
-            nn.Conv2d(in_chans, dims[0], kernel_size=4, stride=4),
-            norm_layer(dims[0])
+            nn.Conv2d(in_chans, dims[0], kernel_size=4, stride=4), norm_layer(dims[0])
         )
 
-        dp_rates = [x.tolist() for x in torch.linspace(0, drop_path_rate, sum(depths)).split(depths)]
+        dp_rates = [
+            x.tolist()
+            for x in torch.linspace(0, drop_path_rate, sum(depths)).split(depths)
+        ]
         prev_chs = dims[0]
         curr_stride = 4
         dilation = 1
@@ -330,106 +353,141 @@ class MetaNeXt(nn.Module):
             curr_stride *= stride
             first_dilation = 1 if dilation in (1, 2) else 2
             out_chs = dims[i]
-            self.stages.append(MetaNeXtStage(
-                prev_chs,
-                out_chs,
-                stride=stride if i > 0 else 1,
-                dilation=(first_dilation, dilation),
-                depth=depths[i],
-                drop_path_rates=dp_rates[i],
-                ls_init_value=ls_init_value,
-                act_layer=act_layer,
-                token_mixer=token_mixers[i],
-                norm_layer=norm_layer,
-                mlp_ratio=mlp_ratios[i],
-            ))
+            self.stages.append(
+                MetaNeXtStage(
+                    prev_chs,
+                    out_chs,
+                    stride=stride if i > 0 else 1,
+                    dilation=(first_dilation, dilation),
+                    depth=depths[i],
+                    drop_path_rates=dp_rates[i],
+                    ls_init_value=ls_init_value,
+                    act_layer=act_layer,
+                    token_mixer=token_mixers[i],
+                    norm_layer=norm_layer,
+                    mlp_ratio=mlp_ratios[i],
+                )
+            )
             prev_chs = out_chs
-            self.feature_info += [dict(num_chs=prev_chs, reduction=curr_stride, module=f'stages.{i}')]
+            self.feature_info += [
+                dict(num_chs=prev_chs, reduction=curr_stride, module=f"stages.{i}")
+            ]
         self.num_features = prev_chs
         if self.num_classes > 0:
             if issubclass(head_fn, MlpClassifierHead):
-                assert self.global_pool, 'Cannot disable global pooling with MLP head present.'
-            self.head = head_fn(self.num_features, num_classes, pool_type=self.global_pool, drop=drop_rate)
+                assert (
+                    self.global_pool
+                ), "Cannot disable global pooling with MLP head present."
+            self.head = head_fn(
+                self.num_features,
+                num_classes,
+                pool_type=self.global_pool,
+                drop=drop_rate,
+            )
         else:
             if self.global_pool:
-                self.head = SelectAdaptivePool2d(pool_type=self.global_pool, flatten=True)
+                self.head = SelectAdaptivePool2d(
+                    pool_type=self.global_pool, flatten=True
+                )
             else:
                 self.head = nn.Identity()
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
         if isinstance(m, (nn.Conv2d, nn.Linear)):
-            trunc_normal_(m.weight, std=.02)
+            trunc_normal_(m.weight, std=0.02)
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
-    def reset_classifier(self, num_classes=0, global_pool=None, head_fn=MlpClassifierHead):
+    def reset_classifier(
+        self, num_classes=0, global_pool=None, head_fn=MlpClassifierHead
+    ):
         if global_pool is not None:
             self.global_pool = global_pool
         if num_classes > 0:
             if issubclass(head_fn, MlpClassifierHead):
-                assert self.global_pool, 'Cannot disable global pooling with MLP head present.'
-            self.head = head_fn(self.num_features, num_classes, pool_type=self.global_pool, drop=self.drop_rate)
+                assert (
+                    self.global_pool
+                ), "Cannot disable global pooling with MLP head present."
+            self.head = head_fn(
+                self.num_features,
+                num_classes,
+                pool_type=self.global_pool,
+                drop=self.drop_rate,
+            )
         else:
             if self.global_pool:
-                self.head = SelectAdaptivePool2d(pool_type=self.global_pool, flatten=True)
+                self.head = SelectAdaptivePool2d(
+                    pool_type=self.global_pool, flatten=True
+                )
             else:
                 self.head = nn.Identity()
 
     def forward_features(self, x):
-        x = self.stem(x)    # [B, 3, 224, 224] -> [B, 96, 56, 56]   patch_size = 4
+        x = self.stem(x)  # [B, 3, 224, 224] -> [B, 96, 56, 56]   patch_size = 4
         x = self.stages(x)  # [B, 96, 56, 56] -> [B, 784, 7, 7]
         return x
 
     def forward_head(self, x, pre_logits: bool = False):
         if pre_logits:
-            if hasattr(self.head, 'global_pool'):
+            if hasattr(self.head, "global_pool"):
                 x = self.head.global_pool(x)
             return x
-        return self.head(x)             # [B, 784, 7, 7] -> [B, num_classes]
+        return self.head(x)  # [B, 784, 7, 7] -> [B, num_classes]
 
     def forward(self, x):
-        x = self.forward_features(x)    # [B, 3, 224, 224] -> [B, 784, 7, 7]
-        x = self.forward_head(x)        # [B, 784, 7, 7] -> [B, num_classes]
+        x = self.forward_features(x)  # [B, 3, 224, 224] -> [B, 784, 7, 7]
+        x = self.forward_head(x)  # [B, 784, 7, 7] -> [B, num_classes]
         return x
 
 
-def _cfg(url='', **kwargs):
+def _cfg(url="", **kwargs):
     return {
-        'url': url,
-        'num_classes': 1000, 'input_size': (3, 224, 224), 'pool_size': (7, 7),
-        'crop_pct': 0.875, 'interpolation': 'bicubic',
-        'mean': IMAGENET_DEFAULT_MEAN, 'std': IMAGENET_DEFAULT_STD,
-        'first_conv': 'stem.0', 'classifier': 'head.fc2',
-        **kwargs
+        "url": url,
+        "num_classes": 1000,
+        "input_size": (3, 224, 224),
+        "pool_size": (7, 7),
+        "crop_pct": 0.875,
+        "interpolation": "bicubic",
+        "mean": IMAGENET_DEFAULT_MEAN,
+        "std": IMAGENET_DEFAULT_STD,
+        "first_conv": "stem.0",
+        "classifier": "head.fc2",
+        **kwargs,
     }
 
 
-default_cfgs = generate_default_cfgs({
-    'inception_next_tiny.sail_in1k': _cfg(
-        hf_hub_id='timm/',
-        # url='https://github.com/sail-sg/inceptionnext/releases/download/model/inceptionnext_tiny.pth',
-    ),
-    'inception_next_small.sail_in1k': _cfg(
-        hf_hub_id='timm/',
-        # url='https://github.com/sail-sg/inceptionnext/releases/download/model/inceptionnext_small.pth',
-    ),
-    'inception_next_base.sail_in1k': _cfg(
-        hf_hub_id='timm/',
-        # url='https://github.com/sail-sg/inceptionnext/releases/download/model/inceptionnext_base.pth',
-        crop_pct=0.95,
-    ),
-    'inception_next_base.sail_in1k_384': _cfg(
-        hf_hub_id='timm/',
-        # url='https://github.com/sail-sg/inceptionnext/releases/download/model/inceptionnext_base_384.pth',
-        input_size=(3, 384, 384), pool_size=(12, 12), crop_pct=1.0,
-    ),
-})
+default_cfgs = generate_default_cfgs(
+    {
+        "inception_next_tiny.sail_in1k": _cfg(
+            hf_hub_id="timm/",
+            # url='https://github.com/sail-sg/inceptionnext/releases/download/model/inceptionnext_tiny.pth',
+        ),
+        "inception_next_small.sail_in1k": _cfg(
+            hf_hub_id="timm/",
+            # url='https://github.com/sail-sg/inceptionnext/releases/download/model/inceptionnext_small.pth',
+        ),
+        "inception_next_base.sail_in1k": _cfg(
+            hf_hub_id="timm/",
+            # url='https://github.com/sail-sg/inceptionnext/releases/download/model/inceptionnext_base.pth',
+            crop_pct=0.95,
+        ),
+        "inception_next_base.sail_in1k_384": _cfg(
+            hf_hub_id="timm/",
+            # url='https://github.com/sail-sg/inceptionnext/releases/download/model/inceptionnext_base_384.pth',
+            input_size=(3, 384, 384),
+            pool_size=(12, 12),
+            crop_pct=1.0,
+        ),
+    }
+)
 
 
 def _create_inception_next(variant, pretrained=False, **kwargs):
     model = build_model_with_cfg(
-        MetaNeXt, variant, pretrained,
+        MetaNeXt,
+        variant,
+        pretrained,
         feature_cfg=dict(out_indices=(0, 1, 2, 3), flatten_sequential=True),
         **kwargs,
     )
@@ -438,30 +496,43 @@ def _create_inception_next(variant, pretrained=False, **kwargs):
 
 def inception_next_tiny(pretrained=False, **kwargs):
     model_args = dict(
-        depths=(3, 3, 9, 3), dims=(96, 192, 384, 768),
+        depths=(3, 3, 9, 3),
+        dims=(96, 192, 384, 768),
         token_mixers=InceptionDWConv2d,
     )
-    return _create_inception_next('inception_next_tiny', pretrained=pretrained, **dict(model_args, **kwargs))
+    return _create_inception_next(
+        "inception_next_tiny", pretrained=pretrained, **dict(model_args, **kwargs)
+    )
 
 
 def inception_next_small(pretrained=False, **kwargs):
     model_args = dict(
-        depths=(3, 3, 27, 3), dims=(96, 192, 384, 768),
+        depths=(3, 3, 27, 3),
+        dims=(96, 192, 384, 768),
         token_mixers=InceptionDWConv2d,
     )
-    return _create_inception_next('inception_next_small', pretrained=pretrained, **dict(model_args, **kwargs))
+    return _create_inception_next(
+        "inception_next_small", pretrained=pretrained, **dict(model_args, **kwargs)
+    )
 
 
 def inception_next_base(pretrained=False, **kwargs):
     model_args = dict(
-        depths=(3, 3, 27, 3), dims=(128, 256, 512, 1024),
+        depths=(3, 3, 27, 3),
+        dims=(128, 256, 512, 1024),
         token_mixers=InceptionDWConv2d,
     )
-    return _create_inception_next('inception_next_base', pretrained=pretrained, **dict(model_args, **kwargs))
+    return _create_inception_next(
+        "inception_next_base", pretrained=pretrained, **dict(model_args, **kwargs)
+    )
 
 
-if __name__ == '__main__':
-    device = "cuda:0" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+if __name__ == "__main__":
+    device = (
+        "cuda:0"
+        if torch.cuda.is_available()
+        else ("mps" if torch.backends.mps.is_available() else "cpu")
+    )
 
     x = torch.ones(1, 3, 224, 224).to(device)
     model = inception_next_tiny(pretrained=False, num_classes=5).to(device)
@@ -469,17 +540,17 @@ if __name__ == '__main__':
     model.eval()
     with torch.inference_mode():
         y = model(x)
-    print(y.size()) # [1, 5]
+    print(y.size())  # [1, 5]
 
     # 查看结构
     if False:
-        onnx_path = 'inception_next_tiny.onnx'
+        onnx_path = "inception_next_tiny.onnx"
         torch.onnx.export(
             model,
             x,
             onnx_path,
-            input_names=['images'],
-            output_names=['classes'],
+            input_names=["images"],
+            output_names=["classes"],
         )
         import onnx
         from onnxsim import simplify

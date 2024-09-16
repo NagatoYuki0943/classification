@@ -12,25 +12,29 @@ from timm.models.helpers import load_pretrained
 import math
 
 
-#--------------------------#
+# --------------------------#
 #   开始的patch和下采样部分
-#--------------------------#
+# --------------------------#
 class OverlapPatchEmbed(nn.Module):
-    """ Image to Patch Embedding
-    """
+    """Image to Patch Embedding"""
 
     def __init__(self, img_size=224, patch_size=7, stride=4, in_chans=3, embed_dim=768):
         super().__init__()
         patch_size = to_2tuple(patch_size)
-        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=stride,
-                              padding=(patch_size[0] // 2, patch_size[1] // 2))
+        self.proj = nn.Conv2d(
+            in_chans,
+            embed_dim,
+            kernel_size=patch_size,
+            stride=stride,
+            padding=(patch_size[0] // 2, patch_size[1] // 2),
+        )
         self.norm = nn.BatchNorm2d(embed_dim)
 
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
-            trunc_normal_(m.weight, std=.02)
+            trunc_normal_(m.weight, std=0.02)
             if isinstance(m, nn.Linear) and m.bias is not None:
                 nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.LayerNorm):
@@ -44,7 +48,9 @@ class OverlapPatchEmbed(nn.Module):
                 m.bias.data.zero_()
 
     def forward(self, x: Tensor):
-        x = self.proj(x)    # [B, 3, 224, 224] -> [B, 32, 56, 56]-> [B, 64, 28, 28] -> [B, 160, 14, 14] -> [B, 256, 7, 7]
+        x = self.proj(
+            x
+        )  # [B, 3, 224, 224] -> [B, 32, 56, 56]-> [B, 64, 28, 28] -> [B, 160, 14, 14] -> [B, 256, 7, 7]
         _, _, H, W = x.shape
         x = self.norm(x)
         return x, H, W
@@ -61,12 +67,19 @@ class DWConv(nn.Module):
         return x
 
 
-#-------------------------------------------------#
+# -------------------------------------------------#
 #   Conv -> DWConv -> act -> drop -> Conv -> drop
 #   通道扩展倍率不一定为4,还可能为8
-#-------------------------------------------------#
+# -------------------------------------------------#
 class Mlp(nn.Module):
-    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
+    def __init__(
+        self,
+        in_features,
+        hidden_features=None,
+        out_features=None,
+        act_layer=nn.GELU,
+        drop=0.0,
+    ):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
@@ -79,7 +92,7 @@ class Mlp(nn.Module):
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
-            trunc_normal_(m.weight, std=.02)
+            trunc_normal_(m.weight, std=0.02)
             if isinstance(m, nn.Linear) and m.bias is not None:
                 nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.LayerNorm):
@@ -93,16 +106,16 @@ class Mlp(nn.Module):
                 m.bias.data.zero_()
 
     def forward(self, x: Tensor) -> Tensor:
-        x = self.fc1(x)     # [B, C, H, W] -> [B, n*C, H, W]
+        x = self.fc1(x)  # [B, C, H, W] -> [B, n*C, H, W]
         x = self.dwconv(x)  # [B, n*C, H, W] -> [B, n*C, H, W]
         x = self.act(x)
         x = self.drop(x)
-        x = self.fc2(x)     # [B, n*C, H, W] -> [B, C, H, W]
+        x = self.fc2(x)  # [B, n*C, H, W] -> [B, C, H, W]
         x = self.drop(x)
         return x
 
 
-#-------------------------------------------------#
+# -------------------------------------------------#
 #   LKA注意力模块
 #   一个大的核卷积可以分为三部分:
 #       一个空间局部卷积(depth-wise的卷积)
@@ -111,26 +124,28 @@ class Mlp(nn.Module):
 #
 #   5x5DWConv -> 7x7dilationDWConv -> 1x1Conv -> attn
 #   x * attn
-#-------------------------------------------------#
+# -------------------------------------------------#
 class LKA(nn.Module):
     def __init__(self, dim):
         super().__init__()
         self.conv0 = nn.Conv2d(dim, dim, 5, padding=2, groups=dim)
-        self.conv_spatial = nn.Conv2d(dim, dim, 7, stride=1, padding=9, groups=dim, dilation=3)
+        self.conv_spatial = nn.Conv2d(
+            dim, dim, 7, stride=1, padding=9, groups=dim, dilation=3
+        )
         self.conv1 = nn.Conv2d(dim, dim, 1)
 
     def forward(self, x: Tensor) -> Tensor:
         u = x.clone()
-        attn = self.conv0(x)            # [B, C, H, W] -> [B, C, H, W]
+        attn = self.conv0(x)  # [B, C, H, W] -> [B, C, H, W]
         attn = self.conv_spatial(attn)  # [B, C, H, W] -> [B, C, H, W]
-        attn = self.conv1(attn)         # [B, C, H, W] -> [B, C, H, W]
-        return u * attn                 # [B, C, H, W] * [B, C, H, W] 相同位置相乘
+        attn = self.conv1(attn)  # [B, C, H, W] -> [B, C, H, W]
+        return u * attn  # [B, C, H, W] * [B, C, H, W] 相同位置相乘
 
 
-#-------------------------------------------------#
+# -------------------------------------------------#
 #   注意力部分
 #   1x1Conv + LKA + 1x1Conv and shorcut
-#-------------------------------------------------#
+# -------------------------------------------------#
 class Attention(nn.Module):
     def __init__(self, d_model):
         super().__init__()
@@ -142,44 +157,51 @@ class Attention(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         shorcut = x.clone()
-        x = self.proj_1(x)              # [B, C, H, W] -> [B, C, H, W]
+        x = self.proj_1(x)  # [B, C, H, W] -> [B, C, H, W]
         x = self.activation(x)
-        x = self.spatial_gating_unit(x) # [B, C, H, W]  * [B, C, H, W] 相同位置相乘
-        x = self.proj_2(x)              # [B, C, H, W] -> [B, C, H, W]
+        x = self.spatial_gating_unit(x)  # [B, C, H, W]  * [B, C, H, W] 相同位置相乘
+        x = self.proj_2(x)  # [B, C, H, W] -> [B, C, H, W]
         x = x + shorcut
         return x
 
 
-#-------------------------------------------------#
+# -------------------------------------------------#
 #   Attention + Mlp
-#-------------------------------------------------#
+# -------------------------------------------------#
 class Block(nn.Module):
-    def __init__(self, dim, mlp_ratio=4., drop=0.,drop_path=0., act_layer=nn.GELU):
+    def __init__(self, dim, mlp_ratio=4.0, drop=0.0, drop_path=0.0, act_layer=nn.GELU):
         super().__init__()
         self.norm1 = nn.BatchNorm2d(dim)
         self.attn = Attention(dim)
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
         self.norm2 = nn.BatchNorm2d(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+        self.mlp = Mlp(
+            in_features=dim,
+            hidden_features=mlp_hidden_dim,
+            act_layer=act_layer,
+            drop=drop,
+        )
         layer_scale_init_value = 1e-2
 
-        #------------------------------------------------------------------------------#
+        # ------------------------------------------------------------------------------#
         #   通道的权重  unsqueeze(-1) 扩展为 [C, 1, 1] 和扩展为 [1, C, 1, 1] 效果相同
         #   pytorch两个矩阵数据相乘,假设其中一个矩阵形状为[B, C, H, W],另一个矩阵从后往前有确定形状
         #   指示(通道可以为1)即可相乘比如[1], [W], [H, 1], [C, 1, 1], [1, C, 1, 1],更高维数据也是如此
-        #------------------------------------------------------------------------------#
+        # ------------------------------------------------------------------------------#
         self.layer_scale_1 = nn.Parameter(
-            layer_scale_init_value * torch.ones((dim)), requires_grad=True)
+            layer_scale_init_value * torch.ones((dim)), requires_grad=True
+        )
         self.layer_scale_2 = nn.Parameter(
-            layer_scale_init_value * torch.ones((dim)), requires_grad=True)
+            layer_scale_init_value * torch.ones((dim)), requires_grad=True
+        )
 
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
-            trunc_normal_(m.weight, std=.02)
+            trunc_normal_(m.weight, std=0.02)
             if isinstance(m, nn.Linear) and m.bias is not None:
                 nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.LayerNorm):
@@ -194,35 +216,62 @@ class Block(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         # Attention [B, C, H, W] -> [C, 1, 1] * [B, C, H, W] -> [B, C, H, W]
-        x = x + self.drop_path(self.layer_scale_1.unsqueeze(-1).unsqueeze(-1) * self.attn(self.norm1(x)))
+        x = x + self.drop_path(
+            self.layer_scale_1.unsqueeze(-1).unsqueeze(-1) * self.attn(self.norm1(x))
+        )
         # Mlp       [B, C, H, W] -> [C, 1, 1] * [B, C, H, W] -> [B, C, H, W]
-        x = x + self.drop_path(self.layer_scale_2.unsqueeze(-1).unsqueeze(-1) * self.mlp(self.norm2(x)))
+        x = x + self.drop_path(
+            self.layer_scale_2.unsqueeze(-1).unsqueeze(-1) * self.mlp(self.norm2(x))
+        )
         return x
 
 
 class VAN(nn.Module):
-    def __init__(self, img_size=224, in_chans=3, num_classes=1000, embed_dims=[64, 128, 256, 512],
-                mlp_ratios=[4, 4, 4, 4], drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm,
-                depths=[3, 4, 6, 3], num_stages=4, flag=False):
+    def __init__(
+        self,
+        img_size=224,
+        in_chans=3,
+        num_classes=1000,
+        embed_dims=[64, 128, 256, 512],
+        mlp_ratios=[4, 4, 4, 4],
+        drop_rate=0.0,
+        drop_path_rate=0.0,
+        norm_layer=nn.LayerNorm,
+        depths=[3, 4, 6, 3],
+        num_stages=4,
+        flag=False,
+    ):
         super().__init__()
         if flag == False:
             self.num_classes = num_classes
         self.depths = depths
         self.num_stages = num_stages
 
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
+        dpr = [
+            x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))
+        ]  # stochastic depth decay rule
         cur = 0
 
         for i in range(num_stages):
-            patch_embed = OverlapPatchEmbed(img_size=img_size if i == 0 else img_size // (2 ** (i + 1)),
-                                            patch_size=7 if i == 0 else 3,
-                                            stride=4 if i == 0 else 2,
-                                            in_chans=in_chans if i == 0 else embed_dims[i - 1],
-                                            embed_dim=embed_dims[i])
+            patch_embed = OverlapPatchEmbed(
+                img_size=img_size if i == 0 else img_size // (2 ** (i + 1)),
+                patch_size=7 if i == 0 else 3,
+                stride=4 if i == 0 else 2,
+                in_chans=in_chans if i == 0 else embed_dims[i - 1],
+                embed_dim=embed_dims[i],
+            )
 
-            block = nn.ModuleList([Block(
-                dim=embed_dims[i], mlp_ratio=mlp_ratios[i], drop=drop_rate, drop_path=dpr[cur + j])
-                for j in range(depths[i])])
+            block = nn.ModuleList(
+                [
+                    Block(
+                        dim=embed_dims[i],
+                        mlp_ratio=mlp_ratios[i],
+                        drop=drop_rate,
+                        drop_path=dpr[cur + j],
+                    )
+                    for j in range(depths[i])
+                ]
+            )
             norm = norm_layer(embed_dims[i])
             cur += depths[i]
 
@@ -237,7 +286,7 @@ class VAN(nn.Module):
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
-            trunc_normal_(m.weight, std=.02)
+            trunc_normal_(m.weight, std=0.02)
             if isinstance(m, nn.Linear) and m.bias is not None:
                 nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.LayerNorm):
@@ -258,10 +307,12 @@ class VAN(nn.Module):
             block = getattr(self, f"block{i + 1}")
             norm = getattr(self, f"norm{i + 1}")
 
-            x, H, W = patch_embed(x)    # [B, 3, 224, 224] -> [B, 32, 56, 56] -> [B, 64, 28, 28] -> [B, 160, 14, 14] -> [B, 256, 7, 7]
+            x, H, W = patch_embed(
+                x
+            )  # [B, 3, 224, 224] -> [B, 32, 56, 56] -> [B, 64, 28, 28] -> [B, 160, 14, 14] -> [B, 256, 7, 7]
 
-            for blk in block:           # Attention + Mlp
-                x = blk(x)              # [B, C, H, W] -> [B, C, H, W]
+            for blk in block:  # Attention + Mlp
+                x = blk(x)  # [B, C, H, W] -> [B, C, H, W]
             # [B, C, H, W] -> [B, c, H*W] -> [B, H*W, C]
             x = x.flatten(2).transpose(1, 2)
             # LN不支持4维度输入，所以上面转化为nlp的3维度[B, p, C]
@@ -271,20 +322,20 @@ class VAN(nn.Module):
                 # [B, H*W, C] -> [B, H, W, C] -> [B, C, H, W]
                 x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
 
-        return x.mean(dim=1)    # [B, H*W, C] -> [B, C]     [B, 49, 256] -> [B, 256]
+        return x.mean(dim=1)  # [B, H*W, C] -> [B, C]     [B, 49, 256] -> [B, 256]
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.forward_features(x)
-        x = self.head(x)        # [B, C] -> [B, num_classes]
+        x = self.head(x)  # [B, C] -> [B, num_classes]
 
         return x
 
 
 def _conv_filter(state_dict, patch_size=16):
-    """ convert patch embedding weight from manual patchify + linear proj to conv"""
+    """convert patch embedding weight from manual patchify + linear proj to conv"""
     out_dict = {}
     for k, v in state_dict.items():
-        if 'patch_embed.proj.weight' in k:
+        if "patch_embed.proj.weight" in k:
             v = v.reshape((v.shape[0], 3, patch_size, patch_size))
         out_dict[k] = v
 
@@ -316,9 +367,12 @@ def load_model_weights(model, arch, kwargs):
 
 def van_b0(pretrained=False, **kwargs):
     model = VAN(
-        embed_dims=[32, 64, 160, 256], mlp_ratios=[8, 8, 4, 4],
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[3, 3, 5, 2],
-        **kwargs)
+        embed_dims=[32, 64, 160, 256],
+        mlp_ratios=[8, 8, 4, 4],
+        norm_layer=partial(nn.LayerNorm, eps=1e-6),
+        depths=[3, 3, 5, 2],
+        **kwargs,
+    )
     model.default_cfg = _cfg()
     if pretrained:
         model = load_model_weights(model, "van_b0", kwargs)
@@ -327,9 +381,12 @@ def van_b0(pretrained=False, **kwargs):
 
 def van_b1(pretrained=False, **kwargs):
     model = VAN(
-        embed_dims=[64, 128, 320, 512], mlp_ratios=[8, 8, 4, 4],
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[2, 2, 4, 2],
-        **kwargs)
+        embed_dims=[64, 128, 320, 512],
+        mlp_ratios=[8, 8, 4, 4],
+        norm_layer=partial(nn.LayerNorm, eps=1e-6),
+        depths=[2, 2, 4, 2],
+        **kwargs,
+    )
     model.default_cfg = _cfg()
     if pretrained:
         model = load_model_weights(model, "van_b1", kwargs)
@@ -338,9 +395,12 @@ def van_b1(pretrained=False, **kwargs):
 
 def van_b2(pretrained=False, **kwargs):
     model = VAN(
-        embed_dims=[64, 128, 320, 512], mlp_ratios=[8, 8, 4, 4],
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[3, 3, 12, 3],
-        **kwargs)
+        embed_dims=[64, 128, 320, 512],
+        mlp_ratios=[8, 8, 4, 4],
+        norm_layer=partial(nn.LayerNorm, eps=1e-6),
+        depths=[3, 3, 12, 3],
+        **kwargs,
+    )
     model.default_cfg = _cfg()
     if pretrained:
         model = load_model_weights(model, "van_b2", kwargs)
@@ -349,9 +409,12 @@ def van_b2(pretrained=False, **kwargs):
 
 def van_b3(pretrained=False, **kwargs):
     model = VAN(
-        embed_dims=[64, 128, 320, 512], mlp_ratios=[8, 8, 4, 4],
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[3, 5, 27, 3],
-        **kwargs)
+        embed_dims=[64, 128, 320, 512],
+        mlp_ratios=[8, 8, 4, 4],
+        norm_layer=partial(nn.LayerNorm, eps=1e-6),
+        depths=[3, 5, 27, 3],
+        **kwargs,
+    )
     model.default_cfg = _cfg()
     if pretrained:
         model = load_model_weights(model, "van_b3", kwargs)
@@ -360,9 +423,12 @@ def van_b3(pretrained=False, **kwargs):
 
 def van_b4(pretrained=False, **kwargs):
     model = VAN(
-        embed_dims=[64, 128, 320, 512], mlp_ratios=[8, 8, 4, 4],
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[3, 6, 40, 3],
-        **kwargs)
+        embed_dims=[64, 128, 320, 512],
+        mlp_ratios=[8, 8, 4, 4],
+        norm_layer=partial(nn.LayerNorm, eps=1e-6),
+        depths=[3, 6, 40, 3],
+        **kwargs,
+    )
     model.default_cfg = _cfg()
     if pretrained:
         model = load_model_weights(model, "van_b4", kwargs)
@@ -371,9 +437,12 @@ def van_b4(pretrained=False, **kwargs):
 
 def van_b5(pretrained=False, **kwargs):
     model = VAN(
-        embed_dims=[96, 192, 480, 768], mlp_ratios=[8, 8, 4, 4],
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[3, 3, 24, 3],
-        **kwargs)
+        embed_dims=[96, 192, 480, 768],
+        mlp_ratios=[8, 8, 4, 4],
+        norm_layer=partial(nn.LayerNorm, eps=1e-6),
+        depths=[3, 3, 24, 3],
+        **kwargs,
+    )
     model.default_cfg = _cfg()
     if pretrained:
         model = load_model_weights(model, "van_b5", kwargs)
@@ -382,9 +451,12 @@ def van_b5(pretrained=False, **kwargs):
 
 def van_b6(pretrained=False, **kwargs):
     model = VAN(
-        embed_dims=[96, 192, 384, 768], mlp_ratios=[8, 8, 4, 4],
-        norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[6,6,90,6],
-        **kwargs)
+        embed_dims=[96, 192, 384, 768],
+        mlp_ratios=[8, 8, 4, 4],
+        norm_layer=partial(nn.LayerNorm, eps=1e-6),
+        depths=[6, 6, 90, 6],
+        **kwargs,
+    )
     model.default_cfg = _cfg()
     if pretrained:
         model = load_model_weights(model, "van_b6", kwargs)
@@ -392,7 +464,11 @@ def van_b6(pretrained=False, **kwargs):
 
 
 if __name__ == "__main__":
-    device = "cuda:0" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+    device = (
+        "cuda:0"
+        if torch.cuda.is_available()
+        else ("mps" if torch.backends.mps.is_available() else "cpu")
+    )
 
     x = torch.ones(1, 3, 224, 224).to(device)
     model = van_b0(pretrained=False, num_classes=5).to(device)
@@ -400,17 +476,17 @@ if __name__ == "__main__":
     model.eval()
     with torch.inference_mode():
         y = model(x)
-    print(y.size()) # [1, 5]
+    print(y.size())  # [1, 5]
 
     # 查看结构
     if False:
-        onnx_path = 'van_b0.onnx'
+        onnx_path = "van_b0.onnx"
         torch.onnx.export(
             model,
             x,
             onnx_path,
-            input_names=['images'],
-            output_names=['classes'],
+            input_names=["images"],
+            output_names=["classes"],
         )
         import onnx
         from onnxsim import simplify
@@ -422,4 +498,4 @@ if __name__ == "__main__":
         model_simple, check = simplify(model_)
         assert check, "Simplified ONNX model could not be validated"
         onnx.save(model_simple, onnx_path)
-        print('finished exporting ' + onnx_path)
+        print("finished exporting " + onnx_path)

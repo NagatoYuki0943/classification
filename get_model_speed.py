@@ -6,7 +6,9 @@ import time
 from tqdm import tqdm
 
 
-def test_model_speed(model: nn.Module, input: Tensor, device="cuda:0", eval=False, repeats: int = 1000):
+def test_model_speed(
+    model: nn.Module, input: Tensor, device="cuda:0", eval=False, repeats: int = 1000
+):
     model.to(device)
     input = input.to(device)
     if eval:

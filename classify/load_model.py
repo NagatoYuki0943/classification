@@ -19,5 +19,5 @@ if __name__ == "__main__":
     with torch.inference_mode():
         y1 = lightning_model(x)
         y2 = model(x)
-    print(y1.size()) # torch.Size([1, 100])
-    print(y2.size()) # torch.Size([1, 100])
+    print(y1.size())  # torch.Size([1, 100])
+    print(y2.size())  # torch.Size([1, 100])

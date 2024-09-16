@@ -1,4 +1,4 @@
-'''
+"""
 SE -> CMBA
 
 b0 224x224
@@ -9,7 +9,7 @@ b4 380x380
 b5 456x456
 b6 528x528
 b7 600x600
-'''
+"""
 
 import copy
 import math
@@ -19,10 +19,20 @@ from torch import nn, Tensor
 from typing import Any, Callable, List, Optional, Sequence
 from torch.hub import load_state_dict_from_url
 
-from torchvision.ops import StochasticDepth # DropPath层
+from torchvision.ops import StochasticDepth  # DropPath层
 
 
-__all__ = ["EfficientNet", "efficientnet_b0", "efficientnet_b1", "efficientnet_b2", "efficientnet_b3", "efficientnet_b4", "efficientnet_b5", "efficientnet_b6", "efficientnet_b7"]
+__all__ = [
+    "EfficientNet",
+    "efficientnet_b0",
+    "efficientnet_b1",
+    "efficientnet_b2",
+    "efficientnet_b3",
+    "efficientnet_b4",
+    "efficientnet_b5",
+    "efficientnet_b6",
+    "efficientnet_b7",
+]
 
 
 model_urls = {
@@ -61,24 +71,25 @@ def _make_divisible(v: float, divisor: int, min_value: int = None) -> int:
 
 
 class ConvNormActivation(nn.Sequential):
-    '''
+    """
     标准卷积块
     Conv + BN + ReLU
     默认宽高不变
-    '''
+    """
+
     def __init__(
         self,
-        in_channels:  int,
+        in_channels: int,
         out_channels: int,
-        kernel_size:  int = 3,
-        stride:       int = 1,
-        padding:      int = None,
-        groups:       int = 1,
-        norm_layer       = nn.BatchNorm2d,  # BN,默认BatchNorm2d
-        activation_layer = nn.ReLU,         # 激活函数,默认ReLU
-        dilation:     int = 1,
-        inplace:      bool = True,          # ReLU的inplace
-        bias:         bool = None,
+        kernel_size: int = 3,
+        stride: int = 1,
+        padding: int = None,
+        groups: int = 1,
+        norm_layer=nn.BatchNorm2d,  # BN,默认BatchNorm2d
+        activation_layer=nn.ReLU,  # 激活函数,默认ReLU
+        dilation: int = 1,
+        inplace: bool = True,  # ReLU的inplace
+        bias: bool = None,
     ) -> None:
         # 自动调整padding,让宽高不变
         if padding is None:
@@ -107,10 +118,10 @@ class ConvNormActivation(nn.Sequential):
         self.out_channels = out_channels
 
 
-#---------------------------------------------------#
+# ---------------------------------------------------#
 #   cbam通道注意力
 #   将输入内容在宽高上分别进行平均池化和最大池化,然后经过共用的两个全连接层,然后将两个结果相加,取sigmoid,最后和原值相乘
-#---------------------------------------------------#
+# ---------------------------------------------------#
 class ChannelAttention(nn.Module):
     def __init__(self, channel, squeeze_channels):
         super().__init__()
@@ -118,10 +129,10 @@ class ChannelAttention(nn.Module):
         self.max_pool = nn.AdaptiveMaxPool2d(1)
 
         # 利用1x1卷积代替全连接
-        self.fc  = nn.Sequential(
+        self.fc = nn.Sequential(
             nn.Conv2d(channel, squeeze_channels, 1, bias=False),
             nn.ReLU(),
-            nn.Conv2d(squeeze_channels, channel, 1, bias=False)
+            nn.Conv2d(squeeze_channels, channel, 1, bias=False),
         )
         self.sigmoid = nn.Sigmoid()
 
@@ -130,43 +141,45 @@ class ChannelAttention(nn.Module):
         avg_out = self.fc(self.avg_pool(x))
         max_out = self.fc(self.max_pool(x))
         # 将两个结果相加,取sigmoid
-        out     = avg_out + max_out
+        out = avg_out + max_out
         return self.sigmoid(out)
 
 
-#---------------------------------------------------#
+# ---------------------------------------------------#
 #   cbam空间注意力
 #   不关注通道数量,所以不用给channel
 #   在每一个特征点的通道上取最大值和平均值。
 #   之后将这两个结果进行一个堆叠，利用一次输出通道数为1的卷积调整通道数，然后取一个sigmoid
 #   在获得这个权值后，我们将这个权值乘上原输入特征层即可。
 #   b, c, h, w -> b, 1, h, w
-#---------------------------------------------------#
+# ---------------------------------------------------#
 class SpatialAttention(nn.Module):
     def __init__(self, kernel_size=7):
         super().__init__()
 
-        assert kernel_size in (3, 7), 'kernel size must be 3 or 7'
+        assert kernel_size in (3, 7), "kernel size must be 3 or 7"
         padding = 3 if kernel_size == 7 else 1
-        self.conv    = nn.Conv2d(2, 1, kernel_size, padding=padding, bias=False)
+        self.conv = nn.Conv2d(2, 1, kernel_size, padding=padding, bias=False)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         # b, c, h, w -> b, 1, h, w
-        avg_out    = torch.mean(x, dim=1, keepdim=True)
+        avg_out = torch.mean(x, dim=1, keepdim=True)
         # b, c, h, w -> b, 1, h, w
-        max_out, _ = torch.max(x, dim=1, keepdim=True)      # 注意 torch.max(x, dim, keepdim=True) 返回值和下标
+        max_out, _ = torch.max(
+            x, dim=1, keepdim=True
+        )  # 注意 torch.max(x, dim, keepdim=True) 返回值和下标
         # b, 1, h, w + b, 1, h, w -> b, 2, h, w
         x = torch.cat([avg_out, max_out], dim=1)
         # b, 2, h, w -> b, 1, h, w
         x = self.conv(x)
-        return self.sigmoid(x)      # 这里也有sigmoid
+        return self.sigmoid(x)  # 这里也有sigmoid
 
 
-#---------------------------------------------------#
+# ---------------------------------------------------#
 #   cbam: 通道+空间注意力
 #   先进行通道,再进行宽高
-#---------------------------------------------------#
+# ---------------------------------------------------#
 class cbam_block(nn.Module):
     def __init__(self, channel, squeeze_channels, kernel_size=7):
         super().__init__()
@@ -180,41 +193,50 @@ class cbam_block(nn.Module):
 
 
 class MBConvConfig:
-    '''
+    """
     每一个stage中所有的MBConv配置参数
-    '''
-    # Stores information listed at Table 1 of the EfficientNet paper
-    def __init__(self,
-                expand_ratio:   float, # MBConv第一层 1x1 Conv扩展比率 1 or 6
-                kernel:         int,
-                stride:         int,
-                input_channels: int,   # in_channel
-                out_channels:   int,   # out_channel
-                num_layers:     int,   # MBConv重复次数
-                width_mult:     float, # 开始和最终维度调整倍率
-                depth_mult:     float  # MBConv重复次数调整倍率
-                ) -> None:
+    """
 
-        self.expand_ratio = expand_ratio    # MBConv第一层 1x1 Conv扩展比率 1 or 6
+    # Stores information listed at Table 1 of the EfficientNet paper
+    def __init__(
+        self,
+        expand_ratio: float,  # MBConv第一层 1x1 Conv扩展比率 1 or 6
+        kernel: int,
+        stride: int,
+        input_channels: int,  # in_channel
+        out_channels: int,  # out_channel
+        num_layers: int,  # MBConv重复次数
+        width_mult: float,  # 开始和最终维度调整倍率
+        depth_mult: float,  # MBConv重复次数调整倍率
+    ) -> None:
+        self.expand_ratio = expand_ratio  # MBConv第一层 1x1 Conv扩展比率 1 or 6
         self.kernel = kernel
-        self.stride = stride                # DW卷积步长 1 or 2
-        self.input_channels = self.adjust_channels(input_channels, width_mult)  # 开始维度调整倍率
-        self.out_channels   = self.adjust_channels(out_channels,   width_mult)  # 最终维度调整倍率
-        self.num_layers     = self.adjust_depth(   num_layers,     depth_mult)  # MBConv重复次数调整倍率
+        self.stride = stride  # DW卷积步长 1 or 2
+        self.input_channels = self.adjust_channels(
+            input_channels, width_mult
+        )  # 开始维度调整倍率
+        self.out_channels = self.adjust_channels(
+            out_channels, width_mult
+        )  # 最终维度调整倍率
+        self.num_layers = self.adjust_depth(
+            num_layers, depth_mult
+        )  # MBConv重复次数调整倍率
 
     def __repr__(self) -> str:
-        s = self.__class__.__name__ + '('
-        s += 'expand_ratio={expand_ratio}'
-        s += ', kernel={kernel}'
-        s += ', stride={stride}'
-        s += ', input_channels={input_channels}'
-        s += ', out_channels={out_channels}'
-        s += ', num_layers={num_layers}'
-        s += ')'
+        s = self.__class__.__name__ + "("
+        s += "expand_ratio={expand_ratio}"
+        s += ", kernel={kernel}"
+        s += ", stride={stride}"
+        s += ", input_channels={input_channels}"
+        s += ", out_channels={out_channels}"
+        s += ", num_layers={num_layers}"
+        s += ")"
         return s.format(**self.__dict__)
 
     @staticmethod
-    def adjust_channels(channels: int, width_mult: float, min_value: Optional[int] = None) -> int:
+    def adjust_channels(
+        channels: int, width_mult: float, min_value: Optional[int] = None
+    ) -> int:
         return _make_divisible(channels * width_mult, 8, min_value)
 
     @staticmethod
@@ -223,26 +245,30 @@ class MBConvConfig:
 
 
 class MBConv(nn.Module):
-    '''
+    """
     倒残差
     1x1Conv => 3x3/5x5DWConv => 1x1Conv
     最后的1x1Conv没有激活函数
     只有当stride == 1 且 in_channel == out_channel 才使用shortcut连接
-    '''
-    def __init__(self,
-                    cnf:                   MBConvConfig,
-                    stochastic_depth_prob: float,
-                    norm_layer,
-                    se_layer = cbam_block,
-                ) -> None:
+    """
+
+    def __init__(
+        self,
+        cnf: MBConvConfig,
+        stochastic_depth_prob: float,
+        norm_layer,
+        se_layer=cbam_block,
+    ) -> None:
         super().__init__()
 
         # 判断每一层步长是否为1或2
         if not (1 <= cnf.stride <= 2):
-            raise ValueError('illegal stride value')
+            raise ValueError("illegal stride value")
 
         # shortcut连接  只有当stride == 1 且n_channel == out_channel才使用
-        self.use_res_connect = (cnf.stride == 1) and (cnf.input_channels == cnf.out_channels)
+        self.use_res_connect = (cnf.stride == 1) and (
+            cnf.input_channels == cnf.out_channels
+        )
 
         layers: List[nn.Module] = []
 
@@ -255,20 +281,28 @@ class MBConv(nn.Module):
         # 1x1
         # 扩展倍率因子是否为1(扩展维度是否等于in_channel), 第一层为1就不需要使用第一个 1x1 的卷积层 Stage2的倍率不变,所以不需要它
         if expanded_channels != cnf.input_channels:
-            layers.append(ConvNormActivation(cnf.input_channels,
-                                            expanded_channels,
-                                            kernel_size     =1,
-                                            norm_layer      =norm_layer,
-                                            activation_layer=activation_layer))
+            layers.append(
+                ConvNormActivation(
+                    cnf.input_channels,
+                    expanded_channels,
+                    kernel_size=1,
+                    norm_layer=norm_layer,
+                    activation_layer=activation_layer,
+                )
+            )
 
         # 3x3 or 5x5 depthwise  groups == in_channels == out_channels
-        layers.append(ConvNormActivation(expanded_channels,
-                                        expanded_channels,
-                                        kernel_size     =cnf.kernel,
-                                        stride          =cnf.stride,
-                                        groups          =expanded_channels,   # groups == in_channels == out_channels
-                                        norm_layer      =norm_layer,
-                                        activation_layer=activation_layer))
+        layers.append(
+            ConvNormActivation(
+                expanded_channels,
+                expanded_channels,
+                kernel_size=cnf.kernel,
+                stride=cnf.stride,
+                groups=expanded_channels,  # groups == in_channels == out_channels
+                norm_layer=norm_layer,
+                activation_layer=activation_layer,
+            )
+        )
 
         # 注意力机制
         # 中间维度为初始维度的 1/4,而不是扩展维度的 1/4
@@ -278,17 +312,21 @@ class MBConv(nn.Module):
         layers.append(cbam_block(expanded_channels, squeeze_channels))
 
         # 1x1Conv 不要激活函数
-        layers.append(ConvNormActivation(expanded_channels,
-                                        cnf.out_channels,
-                                        kernel_size     =1,
-                                        norm_layer      =norm_layer,
-                                        activation_layer=None))
+        layers.append(
+            ConvNormActivation(
+                expanded_channels,
+                cnf.out_channels,
+                kernel_size=1,
+                norm_layer=norm_layer,
+                activation_layer=None,
+            )
+        )
 
         self.block = nn.Sequential(*layers)
 
         # DropPath层
         self.stochastic_depth = StochasticDepth(stochastic_depth_prob, "row")
-        self.out_channels     = cnf.out_channels
+        self.out_channels = cnf.out_channels
 
     def forward(self, input: Tensor) -> Tensor:
         result = self.block(input)
@@ -302,14 +340,14 @@ class MBConv(nn.Module):
 
 class EfficientNet(nn.Module):
     def __init__(
-            self,
-            inverted_residual_setting: List[MBConvConfig],  # 倒残差配置
-            dropout:                float,                  # 最终线性层的Dropout参数
-            stochastic_depth_prob:  float = 0.2,            # Droppath的drop参数
-            num_classes:            int   = 1000,           # 分类数
-            block                         = None,           # 使用的MBConv
-            norm_layer                    = None,           # BN层
-            **kwargs: Any
+        self,
+        inverted_residual_setting: List[MBConvConfig],  # 倒残差配置
+        dropout: float,  # 最终线性层的Dropout参数
+        stochastic_depth_prob: float = 0.2,  # Droppath的drop参数
+        num_classes: int = 1000,  # 分类数
+        block=None,  # 使用的MBConv
+        norm_layer=None,  # BN层
+        **kwargs: Any,
     ) -> None:
         """
         EfficientNet main class
@@ -326,9 +364,13 @@ class EfficientNet(nn.Module):
 
         if not inverted_residual_setting:
             raise ValueError("The inverted_residual_setting should not be empty")
-        elif not (isinstance(inverted_residual_setting, Sequence) and
-                    all([isinstance(s, MBConvConfig) for s in inverted_residual_setting])):
-            raise TypeError("The inverted_residual_setting should be List[MBConvConfig]")
+        elif not (
+            isinstance(inverted_residual_setting, Sequence)
+            and all([isinstance(s, MBConvConfig) for s in inverted_residual_setting])
+        ):
+            raise TypeError(
+                "The inverted_residual_setting should be List[MBConvConfig]"
+            )
 
         # block默认是MBConv
         if block is None:
@@ -340,12 +382,21 @@ class EfficientNet(nn.Module):
 
         layers: List[nn.Module] = []
 
-        #-----------------------------------#
+        # -----------------------------------#
         #   第一层卷积
         #   stem 3x3Conv+BN+Act 调整通道,宽高减半
-        #-----------------------------------#
+        # -----------------------------------#
         firstconv_output_channels = inverted_residual_setting[0].input_channels
-        layers.append(ConvNormActivation(3, firstconv_output_channels, kernel_size=3, stride=2, norm_layer=norm_layer, activation_layer=nn.SiLU))
+        layers.append(
+            ConvNormActivation(
+                3,
+                firstconv_output_channels,
+                kernel_size=3,
+                stride=2,
+                norm_layer=norm_layer,
+                activation_layer=nn.SiLU,
+            )
+        )
 
         # building inverted residual blocks
         # 统计重复次数
@@ -366,7 +417,9 @@ class EfficientNet(nn.Module):
 
                 # dropout比例逐渐增大
                 # adjust stochastic depth probability based on the depth of the stage block
-                sd_prob = stochastic_depth_prob * float(stage_block_id) / total_stage_blocks
+                sd_prob = (
+                    stochastic_depth_prob * float(stage_block_id) / total_stage_blocks
+                )
 
                 stage.append(block(block_cnf, sd_prob, norm_layer))
                 stage_block_id += 1
@@ -374,9 +427,17 @@ class EfficientNet(nn.Module):
             layers.append(nn.Sequential(*stage))
 
         # 计算最后的输入 stage8的输出
-        lastconv_input_channels = inverted_residual_setting[-1].out_channels    # 320
-        lastconv_output_channels = 4 * lastconv_input_channels                  # 320 * 4 = 1280
-        layers.append(ConvNormActivation(lastconv_input_channels, lastconv_output_channels, kernel_size=1, norm_layer=norm_layer, activation_layer=nn.SiLU))
+        lastconv_input_channels = inverted_residual_setting[-1].out_channels  # 320
+        lastconv_output_channels = 4 * lastconv_input_channels  # 320 * 4 = 1280
+        layers.append(
+            ConvNormActivation(
+                lastconv_input_channels,
+                lastconv_output_channels,
+                kernel_size=1,
+                norm_layer=norm_layer,
+                activation_layer=nn.SiLU,
+            )
+        )
 
         self.features = nn.Sequential(*layers)
         self.avgpool = nn.AdaptiveAvgPool2d(1)
@@ -388,7 +449,7 @@ class EfficientNet(nn.Module):
         # 初始化权重
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out')
+                nn.init.kaiming_normal_(m.weight, mode="fan_out")
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
@@ -413,10 +474,12 @@ class EfficientNet(nn.Module):
         return self._forward_impl(x)
 
 
-def _efficientnet_conf(width_mult: float,   # 开始和最终维度调整倍率
-                        depth_mult: float,  # MBConv重复次数调整倍率
-                        **kwargs: Any) -> List[MBConvConfig]:
-    '''
+def _efficientnet_conf(
+    width_mult: float,  # 开始和最终维度调整倍率
+    depth_mult: float,  # MBConv重复次数调整倍率
+    **kwargs: Any,
+) -> List[MBConvConfig]:
+    """
     生成MBConvConfig的参数
 
     MBConvConfig的参数:
@@ -428,7 +491,7 @@ def _efficientnet_conf(width_mult: float,   # 开始和最终维度调整倍率
         num_layers: int,       # MBConv重复次数
         width_mult: float,     # 开始和最终维度调整倍率
         depth_mult: float      # MBConv重复次数调整倍率
-    '''
+    """
     # MBConvConfig后2个参数
     bneck_conf = partial(MBConvConfig, width_mult=width_mult, depth_mult=depth_mult)
 
@@ -436,13 +499,27 @@ def _efficientnet_conf(width_mult: float,   # 开始和最终维度调整倍率
     # MBConvConfig前6个参数
     inverted_residual_setting = [
         # 扩展倍率, kernel, stride, input, out, MBConv重复次数
-        bneck_conf(1, 3, 1, 32,  16,  1),       # 112,112,32 -> 112,112,16   256,256,32 -> 256,256,16
-        bneck_conf(6, 3, 2, 16,  24,  2),       # 112,112,16 -> 56, 56, 24   256,256,16 -> 128,128,24   s=2
-        bneck_conf(6, 5, 2, 24,  40,  2),       # 56, 56, 24 -> 28, 28, 40   128,128,24 -> 64, 64, 40   s=2 out_channels: 40 40 48 48 56 64 72 80
-        bneck_conf(6, 3, 2, 40,  80,  3),       # 28, 28, 40 -> 14, 14, 80   64, 64, 40 -> 32, 32, 80   s=2
-        bneck_conf(6, 5, 1, 80,  112, 3),       # 14, 14, 80 -> 14, 14,112   32, 32, 80 -> 32, 32,112   out_channels: 112 112 120 136 160 176 200 224
-        bneck_conf(6, 5, 2, 112, 192, 4),       # 14, 14,112 -> 7,  7, 192   32, 32,112 -> 16, 16,192   s=2
-        bneck_conf(6, 3, 1, 192, 320, 1),       # 7 , 7, 192 -> 7,  7, 320   16, 16,192 -> 16, 16,320   out_channels: 320 320 352 384 448 512 576 640
+        bneck_conf(
+            1, 3, 1, 32, 16, 1
+        ),  # 112,112,32 -> 112,112,16   256,256,32 -> 256,256,16
+        bneck_conf(
+            6, 3, 2, 16, 24, 2
+        ),  # 112,112,16 -> 56, 56, 24   256,256,16 -> 128,128,24   s=2
+        bneck_conf(
+            6, 5, 2, 24, 40, 2
+        ),  # 56, 56, 24 -> 28, 28, 40   128,128,24 -> 64, 64, 40   s=2 out_channels: 40 40 48 48 56 64 72 80
+        bneck_conf(
+            6, 3, 2, 40, 80, 3
+        ),  # 28, 28, 40 -> 14, 14, 80   64, 64, 40 -> 32, 32, 80   s=2
+        bneck_conf(
+            6, 5, 1, 80, 112, 3
+        ),  # 14, 14, 80 -> 14, 14,112   32, 32, 80 -> 32, 32,112   out_channels: 112 112 120 136 160 176 200 224
+        bneck_conf(
+            6, 5, 2, 112, 192, 4
+        ),  # 14, 14,112 -> 7,  7, 192   32, 32,112 -> 16, 16,192   s=2
+        bneck_conf(
+            6, 3, 1, 192, 320, 1
+        ),  # 7 , 7, 192 -> 7,  7, 320   16, 16,192 -> 16, 16,320   out_channels: 320 320 352 384 448 512 576 640
     ]
 
     return inverted_residual_setting
@@ -454,13 +531,15 @@ def _efficientnet_model(
     dropout: float,
     pretrained: bool,
     progress: bool,
-    num_classes=1000,       # 这里显示指定,防止被传进EfficientNet中导致无法载入权重
-    **kwargs: Any
+    num_classes=1000,  # 这里显示指定,防止被传进EfficientNet中导致无法载入权重
+    **kwargs: Any,
 ) -> EfficientNet:
     model = EfficientNet(inverted_residual_setting, dropout, **kwargs)
     if pretrained:
         if model_urls.get(arch, None) is None:
-            raise ValueError("No checkpoint is available for model type {}".format(arch))
+            raise ValueError(
+                "No checkpoint is available for model type {}".format(arch)
+            )
         state_dict = load_state_dict_from_url(model_urls[arch], progress=progress)
         # 打印missing_keys和unexpected_keys
         missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
@@ -472,7 +551,9 @@ def _efficientnet_model(
     return model
 
 
-def efficientnet_b0(pretrained: bool = False, progress: bool = True, **kwargs: Any) -> EfficientNet:
+def efficientnet_b0(
+    pretrained: bool = False, progress: bool = True, **kwargs: Any
+) -> EfficientNet:
     """
     224x224
 
@@ -480,11 +561,22 @@ def efficientnet_b0(pretrained: bool = False, progress: bool = True, **kwargs: A
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    inverted_residual_setting = _efficientnet_conf(width_mult=1.0, depth_mult=1.0, **kwargs)
-    return _efficientnet_model("efficientnet_b0", inverted_residual_setting, 0.2, pretrained, progress, **kwargs)
+    inverted_residual_setting = _efficientnet_conf(
+        width_mult=1.0, depth_mult=1.0, **kwargs
+    )
+    return _efficientnet_model(
+        "efficientnet_b0",
+        inverted_residual_setting,
+        0.2,
+        pretrained,
+        progress,
+        **kwargs,
+    )
 
 
-def efficientnet_b1(pretrained: bool = False, progress: bool = True, **kwargs: Any) -> EfficientNet:
+def efficientnet_b1(
+    pretrained: bool = False, progress: bool = True, **kwargs: Any
+) -> EfficientNet:
     """
     240x240
 
@@ -492,11 +584,22 @@ def efficientnet_b1(pretrained: bool = False, progress: bool = True, **kwargs: A
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    inverted_residual_setting = _efficientnet_conf(width_mult=1.0, depth_mult=1.1, **kwargs)
-    return _efficientnet_model("efficientnet_b1", inverted_residual_setting, 0.2, pretrained, progress, **kwargs)
+    inverted_residual_setting = _efficientnet_conf(
+        width_mult=1.0, depth_mult=1.1, **kwargs
+    )
+    return _efficientnet_model(
+        "efficientnet_b1",
+        inverted_residual_setting,
+        0.2,
+        pretrained,
+        progress,
+        **kwargs,
+    )
 
 
-def efficientnet_b2(pretrained: bool = False, progress: bool = True, **kwargs: Any) -> EfficientNet:
+def efficientnet_b2(
+    pretrained: bool = False, progress: bool = True, **kwargs: Any
+) -> EfficientNet:
     """
     260x260
 
@@ -504,11 +607,22 @@ def efficientnet_b2(pretrained: bool = False, progress: bool = True, **kwargs: A
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    inverted_residual_setting = _efficientnet_conf(width_mult=1.1, depth_mult=1.2, **kwargs)
-    return _efficientnet_model("efficientnet_b2", inverted_residual_setting, 0.3, pretrained, progress, **kwargs)
+    inverted_residual_setting = _efficientnet_conf(
+        width_mult=1.1, depth_mult=1.2, **kwargs
+    )
+    return _efficientnet_model(
+        "efficientnet_b2",
+        inverted_residual_setting,
+        0.3,
+        pretrained,
+        progress,
+        **kwargs,
+    )
 
 
-def efficientnet_b3(pretrained: bool = False, progress: bool = True, **kwargs: Any) -> EfficientNet:
+def efficientnet_b3(
+    pretrained: bool = False, progress: bool = True, **kwargs: Any
+) -> EfficientNet:
     """
     300x300
 
@@ -516,11 +630,22 @@ def efficientnet_b3(pretrained: bool = False, progress: bool = True, **kwargs: A
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    inverted_residual_setting = _efficientnet_conf(width_mult=1.2, depth_mult=1.4, **kwargs)
-    return _efficientnet_model("efficientnet_b3", inverted_residual_setting, 0.3, pretrained, progress, **kwargs)
+    inverted_residual_setting = _efficientnet_conf(
+        width_mult=1.2, depth_mult=1.4, **kwargs
+    )
+    return _efficientnet_model(
+        "efficientnet_b3",
+        inverted_residual_setting,
+        0.3,
+        pretrained,
+        progress,
+        **kwargs,
+    )
 
 
-def efficientnet_b4(pretrained: bool = False, progress: bool = True, **kwargs: Any) -> EfficientNet:
+def efficientnet_b4(
+    pretrained: bool = False, progress: bool = True, **kwargs: Any
+) -> EfficientNet:
     """
     380x380
 
@@ -528,11 +653,22 @@ def efficientnet_b4(pretrained: bool = False, progress: bool = True, **kwargs: A
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    inverted_residual_setting = _efficientnet_conf(width_mult=1.4, depth_mult=1.8, **kwargs)
-    return _efficientnet_model("efficientnet_b4", inverted_residual_setting, 0.4, pretrained, progress, **kwargs)
+    inverted_residual_setting = _efficientnet_conf(
+        width_mult=1.4, depth_mult=1.8, **kwargs
+    )
+    return _efficientnet_model(
+        "efficientnet_b4",
+        inverted_residual_setting,
+        0.4,
+        pretrained,
+        progress,
+        **kwargs,
+    )
 
 
-def efficientnet_b5(pretrained: bool = False, progress: bool = True, **kwargs: Any) -> EfficientNet:
+def efficientnet_b5(
+    pretrained: bool = False, progress: bool = True, **kwargs: Any
+) -> EfficientNet:
     """
     456x456
 
@@ -540,12 +676,23 @@ def efficientnet_b5(pretrained: bool = False, progress: bool = True, **kwargs: A
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    inverted_residual_setting = _efficientnet_conf(width_mult=1.6, depth_mult=2.2, **kwargs)
-    return _efficientnet_model("efficientnet_b5", inverted_residual_setting, 0.4, pretrained, progress,
-                               norm_layer=partial(nn.BatchNorm2d, eps=0.001, momentum=0.01), **kwargs)
+    inverted_residual_setting = _efficientnet_conf(
+        width_mult=1.6, depth_mult=2.2, **kwargs
+    )
+    return _efficientnet_model(
+        "efficientnet_b5",
+        inverted_residual_setting,
+        0.4,
+        pretrained,
+        progress,
+        norm_layer=partial(nn.BatchNorm2d, eps=0.001, momentum=0.01),
+        **kwargs,
+    )
 
 
-def efficientnet_b6(pretrained: bool = False, progress: bool = True, **kwargs: Any) -> EfficientNet:
+def efficientnet_b6(
+    pretrained: bool = False, progress: bool = True, **kwargs: Any
+) -> EfficientNet:
     """
     528x528
 
@@ -553,12 +700,23 @@ def efficientnet_b6(pretrained: bool = False, progress: bool = True, **kwargs: A
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    inverted_residual_setting = _efficientnet_conf(width_mult=1.8, depth_mult=2.6, **kwargs)
-    return _efficientnet_model("efficientnet_b6", inverted_residual_setting, 0.5, pretrained, progress,
-                               norm_layer=partial(nn.BatchNorm2d, eps=0.001, momentum=0.01), **kwargs)
+    inverted_residual_setting = _efficientnet_conf(
+        width_mult=1.8, depth_mult=2.6, **kwargs
+    )
+    return _efficientnet_model(
+        "efficientnet_b6",
+        inverted_residual_setting,
+        0.5,
+        pretrained,
+        progress,
+        norm_layer=partial(nn.BatchNorm2d, eps=0.001, momentum=0.01),
+        **kwargs,
+    )
 
 
-def efficientnet_b7(pretrained: bool = False, progress: bool = True, **kwargs: Any) -> EfficientNet:
+def efficientnet_b7(
+    pretrained: bool = False, progress: bool = True, **kwargs: Any
+) -> EfficientNet:
     """
     600x600
 
@@ -566,13 +724,26 @@ def efficientnet_b7(pretrained: bool = False, progress: bool = True, **kwargs: A
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    inverted_residual_setting = _efficientnet_conf(width_mult=2.0, depth_mult=3.1, **kwargs)
-    return _efficientnet_model("efficientnet_b7", inverted_residual_setting, 0.5, pretrained, progress,
-                               norm_layer=partial(nn.BatchNorm2d, eps=0.001, momentum=0.01), **kwargs)
+    inverted_residual_setting = _efficientnet_conf(
+        width_mult=2.0, depth_mult=3.1, **kwargs
+    )
+    return _efficientnet_model(
+        "efficientnet_b7",
+        inverted_residual_setting,
+        0.5,
+        pretrained,
+        progress,
+        norm_layer=partial(nn.BatchNorm2d, eps=0.001, momentum=0.01),
+        **kwargs,
+    )
 
 
 if __name__ == "__main__":
-    device = "cuda:0" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+    device = (
+        "cuda:0"
+        if torch.cuda.is_available()
+        else ("mps" if torch.backends.mps.is_available() else "cpu")
+    )
 
     x = torch.ones(1, 3, 224, 224).to(device)
     model = efficientnet_b0(pretrained=False, num_classes=10).to(device)
@@ -580,4 +751,4 @@ if __name__ == "__main__":
     model.eval()
     with torch.inference_mode():
         y = model(x)
-    print(y.size()) # [1, 10]
+    print(y.size())  # [1, 10]

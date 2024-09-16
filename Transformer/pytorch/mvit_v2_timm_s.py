@@ -1,4 +1,4 @@
-""" Multi-Scale Vision Transformer v2
+"""Multi-Scale Vision Transformer v2
 
 @inproceedings{li2021improved,
   title={MViTv2: Improved multiscale vision transformers for classification and detection},
@@ -12,6 +12,7 @@ Original copyright below.
 
 Modifications and timm support by / Copyright 2022, Ross Wightman
 """
+
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved. All Rights Reserved.
 import operator
 from collections import OrderedDict
@@ -27,9 +28,16 @@ from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from timm.layers import DropPath, trunc_normal_tf_, get_norm_layer, to_2tuple
 from timm.models._builder import build_model_with_cfg
 from timm.models._features_fx import register_notrace_function
-from timm.models._registry import register_model, register_model_deprecations, generate_default_cfgs
+from timm.models._registry import (
+    register_model,
+    register_model_deprecations,
+    generate_default_cfgs,
+)
 
-__all__ = ['MultiScaleVit', 'MultiScaleVitCfg']  # model_registry will add each entrypoint fn to this
+__all__ = [
+    "MultiScaleVit",
+    "MultiScaleVitCfg",
+]  # model_registry will add each entrypoint fn to this
 
 
 @dataclass
@@ -37,35 +45,42 @@ class MultiScaleVitCfg:
     depths: Tuple[int, ...] = (2, 3, 16, 3)
     embed_dim: Union[int, Tuple[int, ...]] = 96
     num_heads: Union[int, Tuple[int, ...]] = 1
-    mlp_ratio: float = 4.
+    mlp_ratio: float = 4.0
     pool_first: bool = False
     expand_attn: bool = True
     qkv_bias: bool = True
     use_cls_token: bool = False
     use_abs_pos: bool = False
     residual_pooling: bool = True
-    mode: str = 'conv'
-    kernel_qkv: Tuple[int, int] = (3, 3)                                            # MultiScaleAttention 中的 pool_qkv 的 kernel
-    stride_q: Optional[Tuple[Tuple[int, int]]] = ((1, 1), (2, 2), (2, 2), (2, 2))   # MultiScaleAttention 中的 pool_q 的 stride
-    stride_kv: Optional[Tuple[Tuple[int, int]]] = None                              # MultiScaleAttention 中的 pool_kv 的 stride
+    mode: str = "conv"
+    kernel_qkv: Tuple[int, int] = (3, 3)  # MultiScaleAttention 中的 pool_qkv 的 kernel
+    stride_q: Optional[Tuple[Tuple[int, int]]] = (
+        (1, 1),
+        (2, 2),
+        (2, 2),
+        (2, 2),
+    )  # MultiScaleAttention 中的 pool_q 的 stride
+    stride_kv: Optional[Tuple[Tuple[int, int]]] = (
+        None  # MultiScaleAttention 中的 pool_kv 的 stride
+    )
     stride_kv_adaptive: Optional[Tuple[int, int]] = (4, 4)
     patch_kernel: Tuple[int, int] = (7, 7)
     patch_stride: Tuple[int, int] = (4, 4)
     patch_padding: Tuple[int, int] = (3, 3)
-    pool_type: str = 'max'
-    rel_pos_type: str = 'spatial'
-    act_layer: Union[str, Tuple[str, str]] = 'gelu'
-    norm_layer: Union[str, Tuple[str, str]] = 'layernorm'
+    pool_type: str = "max"
+    rel_pos_type: str = "spatial"
+    act_layer: Union[str, Tuple[str, str]] = "gelu"
+    norm_layer: Union[str, Tuple[str, str]] = "layernorm"
     norm_eps: float = 1e-6
 
     def __post_init__(self):
         num_stages = len(self.depths)
         if not isinstance(self.embed_dim, (tuple, list)):
-            self.embed_dim = tuple(self.embed_dim * 2 ** i for i in range(num_stages))
+            self.embed_dim = tuple(self.embed_dim * 2**i for i in range(num_stages))
         assert len(self.embed_dim) == num_stages
 
         if not isinstance(self.num_heads, (tuple, list)):
-            self.num_heads = tuple(self.num_heads * 2 ** i for i in range(num_stages))
+            self.num_heads = tuple(self.num_heads * 2**i for i in range(num_stages))
         assert len(self.num_heads) == num_stages
 
         if self.stride_kv_adaptive is not None and self.stride_kv is None:
@@ -85,22 +100,22 @@ def prod(iterable):
     return reduce(operator.mul, iterable, 1)
 
 
-#-----------------------------------------#
+# -----------------------------------------#
 #   [..., C] -> [..., n*C] -> [..., C]
-#-----------------------------------------#
+# -----------------------------------------#
 class Mlp(nn.Module):
-    """ MLP as used in Vision Transformer, MLP-Mixer and related networks
-    """
+    """MLP as used in Vision Transformer, MLP-Mixer and related networks"""
+
     def __init__(
-            self,
-            in_features,
-            hidden_features=None,
-            out_features=None,
-            act_layer=nn.GELU,
-            norm_layer=None,
-            bias=True,
-            drop=0.,
-            use_conv=False,
+        self,
+        in_features,
+        hidden_features=None,
+        out_features=None,
+        act_layer=nn.GELU,
+        norm_layer=None,
+        bias=True,
+        drop=0.0,
+        use_conv=False,
     ):
         super().__init__()
         out_features = out_features or in_features
@@ -112,35 +127,37 @@ class Mlp(nn.Module):
         self.fc1 = linear_layer(in_features, hidden_features, bias=bias[0])
         self.act = act_layer()
         self.drop1 = nn.Dropout(drop_probs[0])
-        self.norm = norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
+        self.norm = (
+            norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
+        )
         self.fc2 = linear_layer(hidden_features, out_features, bias=bias[1])
         self.drop2 = nn.Dropout(drop_probs[1])
 
-    def forward(self, x):   # mix channel
-        x = self.fc1(x)     # [B, N, C] -> [B, N, n*C]
+    def forward(self, x):  # mix channel
+        x = self.fc1(x)  # [B, N, C] -> [B, N, n*C]
         x = self.act(x)
         x = self.drop1(x)
         x = self.norm(x)
-        x = self.fc2(x)     # [B, N, n*C] -> [B, N, C]
+        x = self.fc2(x)  # [B, N, n*C] -> [B, N, C]
         x = self.drop2(x)
         return x
 
 
-#----------------------#
+# ----------------------#
 #   开始的patchembed
-#----------------------#
+# ----------------------#
 class PatchEmbed(nn.Module):
     """
     PatchEmbed.
     """
 
     def __init__(
-            self,
-            dim_in=3,
-            dim_out=768,
-            kernel=(7, 7),
-            stride=(4, 4),
-            padding=(3, 3),
+        self,
+        dim_in=3,
+        dim_out=768,
+        kernel=(7, 7),
+        stride=(4, 4),
+        padding=(3, 3),
     ):
         super().__init__()
 
@@ -161,9 +178,7 @@ class PatchEmbed(nn.Module):
 
 @register_notrace_function
 def reshape_pre_pool(
-        x,
-        feat_size: List[int],
-        has_cls_token: bool = True
+    x, feat_size: List[int], has_cls_token: bool = True
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
     H, W = feat_size
     if has_cls_token:
@@ -178,9 +193,7 @@ def reshape_pre_pool(
 
 @register_notrace_function
 def reshape_post_pool(
-        x,
-        num_heads: int,
-        cls_tok: Optional[torch.Tensor] = None
+    x, num_heads: int, cls_tok: Optional[torch.Tensor] = None
 ) -> Tuple[torch.Tensor, List[int]]:
     # [B*h, c, H, W]
     feat_size = [x.shape[2], x.shape[3]]
@@ -195,34 +208,34 @@ def reshape_post_pool(
 
 @register_notrace_function
 def cal_rel_pos_type(
-        attn: torch.Tensor, # [B, 1, 3136, 196]
-        q: torch.Tensor,
-        has_cls_token: bool,
-        q_size: List[int],
-        k_size: List[int],
-        rel_pos_h: torch.Tensor,
-        rel_pos_w: torch.Tensor,
+    attn: torch.Tensor,  # [B, 1, 3136, 196]
+    q: torch.Tensor,
+    has_cls_token: bool,
+    q_size: List[int],
+    k_size: List[int],
+    rel_pos_h: torch.Tensor,
+    rel_pos_w: torch.Tensor,
 ):
     """
     Spatial Relative Positional Embeddings.
     """
     sp_idx = 1 if has_cls_token else 0
-    q_h, q_w = q_size # [56, 56]
-    k_h, k_w = k_size # [14, 14]
+    q_h, q_w = q_size  # [56, 56]
+    k_h, k_w = k_size  # [14, 14]
 
     # Scale up rel pos if shapes for q and k are different.
     q_h_ratio = max(k_h / q_h, 1.0)
     k_h_ratio = max(q_h / k_h, 1.0)
     dist_h = (
-            torch.arange(q_h, device=q.device).unsqueeze(-1) * q_h_ratio -
-            torch.arange(k_h, device=q.device).unsqueeze(0) * k_h_ratio
+        torch.arange(q_h, device=q.device).unsqueeze(-1) * q_h_ratio
+        - torch.arange(k_h, device=q.device).unsqueeze(0) * k_h_ratio
     )
     dist_h += (k_h - 1) * k_h_ratio
     q_w_ratio = max(k_w / q_w, 1.0)
     k_w_ratio = max(q_w / k_w, 1.0)
     dist_w = (
-            torch.arange(q_w, device=q.device).unsqueeze(-1) * q_w_ratio -
-            torch.arange(k_w, device=q.device).unsqueeze(0) * k_w_ratio
+        torch.arange(q_w, device=q.device).unsqueeze(-1) * q_w_ratio
+        - torch.arange(k_w, device=q.device).unsqueeze(0) * k_w_ratio
     )
     dist_w += (k_w - 1) * k_w_ratio
 
@@ -241,32 +254,32 @@ def cal_rel_pos_type(
         + rel_w.unsqueeze(-2)
     ).view(B, -1, q_h * q_w, k_h * k_w)
 
-    return attn # [B, 1, 3136, 196]
+    return attn  # [B, 1, 3136, 196]
 
 
 class MultiScaleAttentionPoolFirst(nn.Module):
     def __init__(
-            self,
-            dim,
-            dim_out,
-            feat_size,
-            num_heads=8,
-            qkv_bias=True,
-            mode="conv",
-            kernel_q=(1, 1),
-            kernel_kv=(1, 1),
-            stride_q=(1, 1),
-            stride_kv=(1, 1),
-            has_cls_token=True,
-            rel_pos_type='spatial',
-            residual_pooling=True,
-            norm_layer=nn.LayerNorm,
+        self,
+        dim,
+        dim_out,
+        feat_size,
+        num_heads=8,
+        qkv_bias=True,
+        mode="conv",
+        kernel_q=(1, 1),
+        kernel_kv=(1, 1),
+        stride_q=(1, 1),
+        stride_kv=(1, 1),
+        has_cls_token=True,
+        rel_pos_type="spatial",
+        residual_pooling=True,
+        norm_layer=nn.LayerNorm,
     ):
         super().__init__()
         self.num_heads = num_heads
         self.dim_out = dim_out
         self.head_dim = dim_out // num_heads
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
         self.has_cls_token = has_cls_token
         padding_q = tuple([int(q // 2) for q in kernel_q])
         padding_kv = tuple([int(kv // 2) for kv in kernel_kv])
@@ -282,7 +295,7 @@ class MultiScaleAttentionPoolFirst(nn.Module):
         if prod(kernel_kv) == 1 and prod(stride_kv) == 1:
             kernel_kv = None
         self.mode = mode
-        self.unshared = mode == 'conv_unshared'
+        self.unshared = mode == "conv_unshared"
         self.pool_q, self.pool_k, self.pool_v = None, None, None
         self.norm_q, self.norm_k, self.norm_v = None, None, None
         if mode in ("avg", "max"):
@@ -331,7 +344,7 @@ class MultiScaleAttentionPoolFirst(nn.Module):
 
         # relative pos embedding
         self.rel_pos_type = rel_pos_type
-        if self.rel_pos_type == 'spatial':
+        if self.rel_pos_type == "spatial":
             assert feat_size[0] == feat_size[1]
             size = feat_size[0]
             q_size = size // stride_q[1] if len(stride_q) > 0 else size
@@ -392,7 +405,7 @@ class MultiScaleAttentionPoolFirst(nn.Module):
         v = self.v(v).reshape(B, v_N, self.num_heads, -1).transpose(1, 2)
 
         attn = (q * self.scale) @ k
-        if self.rel_pos_type == 'spatial':
+        if self.rel_pos_type == "spatial":
             attn = cal_rel_pos_type(
                 attn,
                 q,
@@ -416,27 +429,27 @@ class MultiScaleAttentionPoolFirst(nn.Module):
 
 class MultiScaleAttention(nn.Module):
     def __init__(
-            self,
-            dim,
-            dim_out,
-            feat_size,
-            num_heads=8,
-            qkv_bias=True,
-            mode="conv",
-            kernel_q=(1, 1),
-            kernel_kv=(1, 1),
-            stride_q=(1, 1),
-            stride_kv=(1, 1),
-            has_cls_token=True,
-            rel_pos_type='spatial',
-            residual_pooling=True,
-            norm_layer=nn.LayerNorm,
+        self,
+        dim,
+        dim_out,
+        feat_size,
+        num_heads=8,
+        qkv_bias=True,
+        mode="conv",
+        kernel_q=(1, 1),
+        kernel_kv=(1, 1),
+        stride_q=(1, 1),
+        stride_kv=(1, 1),
+        has_cls_token=True,
+        rel_pos_type="spatial",
+        residual_pooling=True,
+        norm_layer=nn.LayerNorm,
     ):
         super().__init__()
         self.num_heads = num_heads
         self.dim_out = dim_out
         self.head_dim = dim_out // num_heads
-        self.scale = self.head_dim ** -0.5
+        self.scale = self.head_dim**-0.5
         self.has_cls_token = has_cls_token
         padding_q = tuple([int(q // 2) for q in kernel_q])
         padding_kv = tuple([int(kv // 2) for kv in kernel_kv])
@@ -450,7 +463,7 @@ class MultiScaleAttention(nn.Module):
         if prod(kernel_kv) == 1 and prod(stride_kv) == 1:
             kernel_kv = None
         self.mode = mode
-        self.unshared = mode == 'conv_unshared'
+        self.unshared = mode == "conv_unshared"
         self.norm_q, self.norm_k, self.norm_v = None, None, None
         self.pool_q, self.pool_k, self.pool_v = None, None, None
         if mode in ("avg", "max"):
@@ -499,7 +512,7 @@ class MultiScaleAttention(nn.Module):
 
         # relative pos embedding
         self.rel_pos_type = rel_pos_type
-        if self.rel_pos_type == 'spatial':
+        if self.rel_pos_type == "spatial":
             assert feat_size[0] == feat_size[1]
             size = feat_size[0]
             q_size = size // stride_q[1] if len(stride_q) > 0 else size
@@ -514,41 +527,57 @@ class MultiScaleAttention(nn.Module):
         self.residual_pooling = residual_pooling
 
     def forward(self, x, feat_size: List[int]):
-        B, N, _ = x.shape   # [B, N, C] [B, 3136, 96]
+        B, N, _ = x.shape  # [B, N, C] [B, 3136, 96]
 
-        qkv = self.qkv(x)                               # [B, 3136, 96] -> [B, 3136, 96*3]
-        qkv = qkv.reshape(B, N, 3, self.num_heads, -1)  # [B, 3136, 96*3] -> [B, 3136, 3, 1, 96]
-        qkv = qkv.permute(2, 0, 3, 1, 4)                # [B, 3136, 3, 1, 96] -> [3, B, 1, 3136, 96]
-        q, k, v = qkv.unbind(dim=0)                     # [3, B, 1, 3136, 96] -> [B, 1, 3136, 96] * 3
+        qkv = self.qkv(x)  # [B, 3136, 96] -> [B, 3136, 96*3]
+        qkv = qkv.reshape(
+            B, N, 3, self.num_heads, -1
+        )  # [B, 3136, 96*3] -> [B, 3136, 3, 1, 96]
+        qkv = qkv.permute(2, 0, 3, 1, 4)  # [B, 3136, 3, 1, 96] -> [3, B, 1, 3136, 96]
+        q, k, v = qkv.unbind(dim=0)  # [3, B, 1, 3136, 96] -> [B, 1, 3136, 96] * 3
 
         if self.pool_q is not None:
-            q, q_tok = reshape_pre_pool(q, feat_size, self.has_cls_token) # [B, 1, 3136, 96] -> [B*1, 96, 56, 56], None
-            q = self.pool_q(q)                                     # conv  [B*1, 96, 56, 56] -> [B*1, 96, 56, 56]
-            q, q_size = reshape_post_pool(q, self.num_heads, q_tok)       # [B*1, 96, 56, 56] -> [B, 1, 3136, 96], [56, 56]
+            q, q_tok = reshape_pre_pool(
+                q, feat_size, self.has_cls_token
+            )  # [B, 1, 3136, 96] -> [B*1, 96, 56, 56], None
+            q = self.pool_q(q)  # conv  [B*1, 96, 56, 56] -> [B*1, 96, 56, 56]
+            q, q_size = reshape_post_pool(
+                q, self.num_heads, q_tok
+            )  # [B*1, 96, 56, 56] -> [B, 1, 3136, 96], [56, 56]
         else:
             q_size = feat_size
         if self.norm_q is not None:
             q = self.norm_q(q)
 
         if self.pool_k is not None:
-            k, k_tok = reshape_pre_pool(k, feat_size, self.has_cls_token) # [B, 1, 3136, 96] -> [B*1, 96, 56, 56], None
-            k = self.pool_k(k)                                      # conv  [B*1, 96, 56, 56] -> [B*1, 96, 14, 14]
-            k, k_size = reshape_post_pool(k, self.num_heads, k_tok)       # [B*1, 96, 14, 14] -> [B, 1, 196, 96], [14, 14]
+            k, k_tok = reshape_pre_pool(
+                k, feat_size, self.has_cls_token
+            )  # [B, 1, 3136, 96] -> [B*1, 96, 56, 56], None
+            k = self.pool_k(k)  # conv  [B*1, 96, 56, 56] -> [B*1, 96, 14, 14]
+            k, k_size = reshape_post_pool(
+                k, self.num_heads, k_tok
+            )  # [B*1, 96, 14, 14] -> [B, 1, 196, 96], [14, 14]
         else:
             k_size = feat_size
         if self.norm_k is not None:
             k = self.norm_k(k)
 
         if self.pool_v is not None:
-            v, v_tok = reshape_pre_pool(v, feat_size, self.has_cls_token) # [B, 1, 3136, 96] -> [B*1, 96, 56, 56], None
-            v = self.pool_v(v)                                      # conv  [B*1, 96, 56, 56] -> [B*1, 96, 14, 14]
-            v, _ = reshape_post_pool(v, self.num_heads, v_tok)            # [B*1, 96, 14, 14] -> [B, 1, 196, 96], [14, 14]
+            v, v_tok = reshape_pre_pool(
+                v, feat_size, self.has_cls_token
+            )  # [B, 1, 3136, 96] -> [B*1, 96, 56, 56], None
+            v = self.pool_v(v)  # conv  [B*1, 96, 56, 56] -> [B*1, 96, 14, 14]
+            v, _ = reshape_post_pool(
+                v, self.num_heads, v_tok
+            )  # [B*1, 96, 14, 14] -> [B, 1, 196, 96], [14, 14]
         if self.norm_v is not None:
             v = self.norm_v(v)
 
-        attn = (q * self.scale) @ k.transpose(-2, -1) # [B, 1, 3136, 96] @ [B, 1, 96, 196] -> [B, 1, 3136, 196]
-        if self.rel_pos_type == 'spatial':
-            attn = cal_rel_pos_type(                  # [B, 1, 3136, 196] -> # [B, 1, 3136, 196]
+        attn = (q * self.scale) @ k.transpose(
+            -2, -1
+        )  # [B, 1, 3136, 96] @ [B, 1, 96, 196] -> [B, 1, 3136, 196]
+        if self.rel_pos_type == "spatial":
+            attn = cal_rel_pos_type(  # [B, 1, 3136, 196] -> # [B, 1, 3136, 196]
                 attn,
                 q,
                 self.has_cls_token,
@@ -557,40 +586,40 @@ class MultiScaleAttention(nn.Module):
                 self.rel_pos_h,
                 self.rel_pos_w,
             )
-        attn = attn.softmax(dim=-1)         # 取每一列,在行上做softmax
-        x = attn @ v                        # [B, 1, 3136, 196] @ [B, 1, 196, 96] = [B, 1, 3136, 96]
+        attn = attn.softmax(dim=-1)  # 取每一列,在行上做softmax
+        x = attn @ v  # [B, 1, 3136, 196] @ [B, 1, 196, 96] = [B, 1, 3136, 96]
 
         if self.residual_pooling:
-            x = x + q                       # [B, 1, 3136, 96] + [B, 1, 3136, 96] = [B, 1, 3136, 96]
+            x = x + q  # [B, 1, 3136, 96] + [B, 1, 3136, 96] = [B, 1, 3136, 96]
 
-        x = x.transpose(1, 2)               # [B, 1, 3136, 96] -> [B, 3136, 1, 96]
+        x = x.transpose(1, 2)  # [B, 1, 3136, 96] -> [B, 3136, 1, 96]
         x = x.reshape(B, -1, self.dim_out)  # [B, 3136, 1, 96] -> [B, 3136, 96]
-        x = self.proj(x)                    # [B, 3136, 96] -> [B, 3136, 96]
+        x = self.proj(x)  # [B, 3136, 96] -> [B, 3136, 96]
 
-        return x, q_size                    # [B, 3136, 96], [56, 56]
+        return x, q_size  # [B, 3136, 96], [56, 56]
 
 
 class MultiScaleBlock(nn.Module):
     def __init__(
-            self,
-            dim,
-            dim_out,
-            num_heads,
-            feat_size,
-            mlp_ratio=4.0,
-            qkv_bias=True,
-            drop_path=0.0,
-            norm_layer=nn.LayerNorm,
-            kernel_q=(1, 1),
-            kernel_kv=(1, 1),
-            stride_q=(1, 1),
-            stride_kv=(1, 1),
-            mode="conv",
-            has_cls_token=True,
-            expand_attn=False,
-            pool_first=False,
-            rel_pos_type='spatial',
-            residual_pooling=True,
+        self,
+        dim,
+        dim_out,
+        num_heads,
+        feat_size,
+        mlp_ratio=4.0,
+        qkv_bias=True,
+        drop_path=0.0,
+        norm_layer=nn.LayerNorm,
+        kernel_q=(1, 1),
+        kernel_kv=(1, 1),
+        stride_q=(1, 1),
+        stride_kv=(1, 1),
+        mode="conv",
+        has_cls_token=True,
+        expand_attn=False,
+        pool_first=False,
+        rel_pos_type="spatial",
+        residual_pooling=True,
     ):
         super().__init__()
         proj_needed = dim != dim_out
@@ -600,12 +629,16 @@ class MultiScaleBlock(nn.Module):
 
         self.norm1 = norm_layer(dim)
 
-        self.shortcut_proj_attn = nn.Linear(dim, dim_out) if proj_needed and expand_attn else None
+        self.shortcut_proj_attn = (
+            nn.Linear(dim, dim_out) if proj_needed and expand_attn else None
+        )
         if stride_q and prod(stride_q) > 1:
             kernel_skip = [s + 1 if s > 1 else s for s in stride_q]
             stride_skip = stride_q
             padding_skip = [int(skip // 2) for skip in kernel_skip]
-            self.shortcut_pool_attn = nn.MaxPool2d(kernel_skip, stride_skip, padding_skip)
+            self.shortcut_pool_attn = nn.MaxPool2d(
+                kernel_skip, stride_skip, padding_skip
+            )
         else:
             self.shortcut_pool_attn = None
 
@@ -631,7 +664,9 @@ class MultiScaleBlock(nn.Module):
 
         self.norm2 = norm_layer(att_dim)
         mlp_dim_out = dim_out
-        self.shortcut_proj_mlp = nn.Linear(dim, dim_out) if proj_needed and not expand_attn else None
+        self.shortcut_proj_mlp = (
+            nn.Linear(dim, dim_out) if proj_needed and not expand_attn else None
+        )
         self.mlp = Mlp(
             in_features=att_dim,
             hidden_features=int(att_dim * mlp_ratio),
@@ -642,15 +677,19 @@ class MultiScaleBlock(nn.Module):
     def _shortcut_pool(self, x, feat_size: List[int]):
         if self.shortcut_pool_attn is None:
             return x
-        if self.has_cls_token: # 取出cls_token
+        if self.has_cls_token:  # 取出cls_token
             cls_tok, x = x[:, :1, :], x[:, 1:, :]
         else:
             cls_tok = None
         B, N, C = x.shape
         H, W = feat_size
-        x = x.reshape(B, H, W, C).permute(0, 3, 1, 2).contiguous() # [B, N, C] -> [B, H, W, C] -> [B, C, H, W]  P = H * W
-        x = self.shortcut_pool_attn(x)                    # pool k=2 [B, C, H, W] -> [B, C, H/2, W/2]
-        x = x.reshape(B, C, -1).transpose(1, 2)                    # [B, C, H/2, W/2] -> [B, C, N/4] -> [B, N, C/4]
+        x = (
+            x.reshape(B, H, W, C).permute(0, 3, 1, 2).contiguous()
+        )  # [B, N, C] -> [B, H, W, C] -> [B, C, H, W]  P = H * W
+        x = self.shortcut_pool_attn(x)  # pool k=2 [B, C, H, W] -> [B, C, H/2, W/2]
+        x = x.reshape(B, C, -1).transpose(
+            1, 2
+        )  # [B, C, H/2, W/2] -> [B, C, N/4] -> [B, N, C/4]
         if cls_tok is not None:
             x = torch.cat((cls_tok, x), dim=1)
         return x
@@ -658,40 +697,51 @@ class MultiScaleBlock(nn.Module):
     def forward(self, x, feat_size: List[int]):
         x_norm = self.norm1(x)
         # NOTE as per the original impl, this seems odd, but shortcut uses un-normalized input if no proj
-        x_shortcut = x if self.shortcut_proj_attn is None else self.shortcut_proj_attn(x_norm)
-        x_shortcut = self._shortcut_pool(x_shortcut, feat_size) # 下采样层,stage234有使用
-        x, feat_size_new = self.attn(x_norm, feat_size)         # [B, 3136, 96], [56, 56] -> [B, 3136, 96], [56, 56] 这里面也会有下采样层
-        x = x_shortcut + self.drop_path1(x)                     # [B, 3136, 96] + [B, 3136, 96] = [B, 3136, 96]
+        x_shortcut = (
+            x if self.shortcut_proj_attn is None else self.shortcut_proj_attn(x_norm)
+        )
+        x_shortcut = self._shortcut_pool(
+            x_shortcut, feat_size
+        )  # 下采样层,stage234有使用
+        x, feat_size_new = self.attn(
+            x_norm, feat_size
+        )  # [B, 3136, 96], [56, 56] -> [B, 3136, 96], [56, 56] 这里面也会有下采样层
+        x = x_shortcut + self.drop_path1(
+            x
+        )  # [B, 3136, 96] + [B, 3136, 96] = [B, 3136, 96]
 
         x_norm = self.norm2(x)
-        x_shortcut = x if self.shortcut_proj_mlp is None else self.shortcut_proj_mlp(x_norm)
-        x = x_shortcut + self.drop_path2(self.mlp(x_norm))      # [B, N, C] -> [B, N, 4*C] -> [B, N, C]
+        x_shortcut = (
+            x if self.shortcut_proj_mlp is None else self.shortcut_proj_mlp(x_norm)
+        )
+        x = x_shortcut + self.drop_path2(
+            self.mlp(x_norm)
+        )  # [B, N, C] -> [B, N, 4*C] -> [B, N, C]
         return x, feat_size_new
 
 
 class MultiScaleVitStage(nn.Module):
-
     def __init__(
-            self,
-            dim,
-            dim_out,
-            depth,
-            num_heads,
-            feat_size,
-            mlp_ratio=4.0,
-            qkv_bias=True,
-            mode="conv",
-            kernel_q=(1, 1),
-            kernel_kv=(1, 1),
-            stride_q=(1, 1),
-            stride_kv=(1, 1),
-            has_cls_token=True,
-            expand_attn=False,
-            pool_first=False,
-            rel_pos_type='spatial',
-            residual_pooling=True,
-            norm_layer=nn.LayerNorm,
-            drop_path=0.0,
+        self,
+        dim,
+        dim_out,
+        depth,
+        num_heads,
+        feat_size,
+        mlp_ratio=4.0,
+        qkv_bias=True,
+        mode="conv",
+        kernel_q=(1, 1),
+        kernel_kv=(1, 1),
+        stride_q=(1, 1),
+        stride_kv=(1, 1),
+        has_cls_token=True,
+        expand_attn=False,
+        pool_first=False,
+        rel_pos_type="spatial",
+        residual_pooling=True,
+        norm_layer=nn.LayerNorm,
+        drop_path=0.0,
     ):
         super().__init__()
         self.grad_checkpointing = False
@@ -721,12 +771,16 @@ class MultiScaleVitStage(nn.Module):
                 residual_pooling=residual_pooling,
                 expand_attn=expand_attn,
                 norm_layer=norm_layer,
-                drop_path=drop_path[i] if isinstance(drop_path, (list, tuple)) else drop_path,
+                drop_path=drop_path[i]
+                if isinstance(drop_path, (list, tuple))
+                else drop_path,
             )
             dim = out_dims[i]
             self.blocks.append(attention_block)
             if i == 0:
-                feat_size = tuple([size // stride for size, stride in zip(feat_size, stride_q)])
+                feat_size = tuple(
+                    [size // stride for size, stride in zip(feat_size, stride_q)]
+                )
 
         self.feat_size = feat_size
 
@@ -753,14 +807,14 @@ class MultiScaleVit(nn.Module):
     """
 
     def __init__(
-            self,
-            cfg: MultiScaleVitCfg,
-            img_size: Tuple[int, int] = (224, 224),
-            in_chans: int = 3,
-            global_pool: Optional[str] = None,
-            num_classes: int = 1000,
-            drop_path_rate: float = 0.,
-            drop_rate: float = 0.,
+        self,
+        cfg: MultiScaleVitCfg,
+        img_size: Tuple[int, int] = (224, 224),
+        in_chans: int = 3,
+        global_pool: Optional[str] = None,
+        num_classes: int = 1000,
+        drop_path_rate: float = 0.0,
+        drop_rate: float = 0.0,
     ):
         super().__init__()
         img_size = to_2tuple(img_size)
@@ -768,7 +822,7 @@ class MultiScaleVit(nn.Module):
         self.num_classes = num_classes
         self.drop_rate = drop_rate
         if global_pool is None:
-            global_pool = 'token' if cfg.use_cls_token else 'avg'
+            global_pool = "token" if cfg.use_cls_token else "avg"
         self.global_pool = global_pool
         self.depths = tuple(cfg.depths)
         self.expand_attn = cfg.expand_attn
@@ -781,11 +835,14 @@ class MultiScaleVit(nn.Module):
             stride=cfg.patch_stride,
             padding=cfg.patch_padding,
         )
-        patch_dims = (img_size[0] // cfg.patch_stride[0], img_size[1] // cfg.patch_stride[1])
+        patch_dims = (
+            img_size[0] // cfg.patch_stride[0],
+            img_size[1] // cfg.patch_stride[1],
+        )
         num_patches = prod(patch_dims)
 
         if cfg.use_cls_token:
-            self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) # [1, 1, 96]
+            self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))  # [1, 1, 96]
             self.num_prefix_tokens = 1
             pos_embed_dim = num_patches + 1
         else:
@@ -800,7 +857,12 @@ class MultiScaleVit(nn.Module):
 
         num_stages = len(cfg.embed_dim)
         feat_size = patch_dims
-        dpr = [x.tolist() for x in torch.linspace(0, drop_path_rate, sum(cfg.depths)).split(cfg.depths)]
+        dpr = [
+            x.tolist()
+            for x in torch.linspace(0, drop_path_rate, sum(cfg.depths)).split(
+                cfg.depths
+            )
+        ]
         self.stages = nn.ModuleList()
         for i in range(num_stages):
             if cfg.expand_attn:
@@ -834,10 +896,19 @@ class MultiScaleVit(nn.Module):
 
         self.num_features = embed_dim
         self.norm = norm_layer(embed_dim)
-        self.head = nn.Sequential(OrderedDict([
-            ('drop', nn.Dropout(self.drop_rate)),
-            ('fc', nn.Linear(self.num_features, num_classes) if num_classes > 0 else nn.Identity())
-        ]))
+        self.head = nn.Sequential(
+            OrderedDict(
+                [
+                    ("drop", nn.Dropout(self.drop_rate)),
+                    (
+                        "fc",
+                        nn.Linear(self.num_features, num_classes)
+                        if num_classes > 0
+                        else nn.Identity(),
+                    ),
+                ]
+            )
+        )
 
         if self.pos_embed is not None:
             trunc_normal_tf_(self.pos_embed, std=0.02)
@@ -855,13 +926,24 @@ class MultiScaleVit(nn.Module):
         self.num_classes = num_classes
         if global_pool is not None:
             self.global_pool = global_pool
-        self.head = nn.Sequential(OrderedDict([
-            ('drop', nn.Dropout(self.drop_rate)),
-            ('fc', nn.Linear(self.num_features, num_classes) if num_classes > 0 else nn.Identity())
-        ]))
+        self.head = nn.Sequential(
+            OrderedDict(
+                [
+                    ("drop", nn.Dropout(self.drop_rate)),
+                    (
+                        "fc",
+                        nn.Linear(self.num_features, num_classes)
+                        if num_classes > 0
+                        else nn.Identity(),
+                    ),
+                ]
+            )
+        )
 
     def forward_features(self, x):
-        x, feat_size = self.patch_embed(x)  # [B, 3, 224, 224] -> [B, 56*56, 96], [56*56]
+        x, feat_size = self.patch_embed(
+            x
+        )  # [B, 3, 224, 224] -> [B, 56*56, 96], [56*56]
         B, N, C = x.shape
 
         if self.cls_token is not None:
@@ -879,48 +961,60 @@ class MultiScaleVit(nn.Module):
 
     def forward_head(self, x, pre_logits: bool = False):
         if self.global_pool:
-            if self.global_pool == 'avg':
-                x = x[:, self.num_prefix_tokens:].mean(1)
+            if self.global_pool == "avg":
+                x = x[:, self.num_prefix_tokens :].mean(1)
             else:
                 x = x[:, 0]
         return x if pre_logits else self.head(x)
 
     def forward(self, x):
-        x = self.forward_features(x)    # [B, 2, 224, 224] -> [B, 49, 768]
-        x = self.forward_head(x)        # [B, 49, 768] -> [B, num_classes]
+        x = self.forward_features(x)  # [B, 2, 224, 224] -> [B, 49, 768]
+        x = self.forward_head(x)  # [B, 49, 768] -> [B, num_classes]
         return x
 
 
 def checkpoint_filter_fn(state_dict, model):
-    if 'stages.0.blocks.0.norm1.weight' in state_dict:
+    if "stages.0.blocks.0.norm1.weight" in state_dict:
         return state_dict
 
     import re
-    if 'model_state' in state_dict:
-        state_dict = state_dict['model_state']
 
-    depths = getattr(model, 'depths', None)
-    expand_attn = getattr(model, 'expand_attn', True)
-    assert depths is not None, 'model requires depth attribute to remap checkpoints'
+    if "model_state" in state_dict:
+        state_dict = state_dict["model_state"]
+
+    depths = getattr(model, "depths", None)
+    expand_attn = getattr(model, "expand_attn", True)
+    assert depths is not None, "model requires depth attribute to remap checkpoints"
     depth_map = {}
     block_idx = 0
     for stage_idx, d in enumerate(depths):
-        depth_map.update({i: (stage_idx, i - block_idx) for i in range(block_idx, block_idx + d)})
+        depth_map.update(
+            {i: (stage_idx, i - block_idx) for i in range(block_idx, block_idx + d)}
+        )
         block_idx += d
 
     out_dict = {}
     for k, v in state_dict.items():
         k = re.sub(
-            r'blocks\.(\d+)',
-            lambda x: f'stages.{depth_map[int(x.group(1))][0]}.blocks.{depth_map[int(x.group(1))][1]}',
-            k)
+            r"blocks\.(\d+)",
+            lambda x: f"stages.{depth_map[int(x.group(1))][0]}.blocks.{depth_map[int(x.group(1))][1]}",
+            k,
+        )
 
         if expand_attn:
-            k = re.sub(r'stages\.(\d+).blocks\.(\d+).proj', f'stages.\\1.blocks.\\2.shortcut_proj_attn', k)
+            k = re.sub(
+                r"stages\.(\d+).blocks\.(\d+).proj",
+                f"stages.\\1.blocks.\\2.shortcut_proj_attn",
+                k,
+            )
         else:
-            k = re.sub(r'stages\.(\d+).blocks\.(\d+).proj', f'stages.\\1.blocks.\\2.shortcut_proj_mlp', k)
-        if 'head' in k:
-            k = k.replace('head.projection', 'head.fc')
+            k = re.sub(
+                r"stages\.(\d+).blocks\.(\d+).proj",
+                f"stages.\\1.blocks.\\2.shortcut_proj_mlp",
+                k,
+            )
+        if "head" in k:
+            k = k.replace("head.projection", "head.fc")
         out_dict[k] = v
 
     # for k, v in state_dict.items():
@@ -952,7 +1046,6 @@ model_cfgs = dict(
         num_heads=2,
         expand_attn=False,
     ),
-
     mvitv2_small_cls=MultiScaleVitCfg(
         depths=(1, 2, 11, 2),
         use_cls_token=True,
@@ -990,71 +1083,92 @@ def _create_mvitv2(variant, cfg_variant=None, pretrained=False, **kwargs):
     )
 
 
-def _cfg(url='', **kwargs):
+def _cfg(url="", **kwargs):
     return {
-        'url': url,
-        'num_classes': 1000, 'input_size': (3, 224, 224), 'pool_size': None,
-        'crop_pct': .9, 'interpolation': 'bicubic',
-        'mean': IMAGENET_DEFAULT_MEAN, 'std': IMAGENET_DEFAULT_STD,
-        'first_conv': 'patch_embed.proj', 'classifier': 'head.fc',
-        'fixed_input_size': True,
-        **kwargs
+        "url": url,
+        "num_classes": 1000,
+        "input_size": (3, 224, 224),
+        "pool_size": None,
+        "crop_pct": 0.9,
+        "interpolation": "bicubic",
+        "mean": IMAGENET_DEFAULT_MEAN,
+        "std": IMAGENET_DEFAULT_STD,
+        "first_conv": "patch_embed.proj",
+        "classifier": "head.fc",
+        "fixed_input_size": True,
+        **kwargs,
     }
 
 
-default_cfgs = generate_default_cfgs({
-    'mvitv2_tiny.fb_in1k': _cfg(url='https://dl.fbaipublicfiles.com/mvit/mvitv2_models/MViTv2_T_in1k.pyth'),
-    'mvitv2_small.fb_in1k': _cfg(url='https://dl.fbaipublicfiles.com/mvit/mvitv2_models/MViTv2_S_in1k.pyth'),
-    'mvitv2_base.fb_in1k': _cfg(url='https://dl.fbaipublicfiles.com/mvit/mvitv2_models/MViTv2_B_in1k.pyth'),
-    'mvitv2_large.fb_in1k': _cfg(url='https://dl.fbaipublicfiles.com/mvit/mvitv2_models/MViTv2_L_in1k.pyth'),
-
-    'mvitv2_small_cls': _cfg(url=''),
-    'mvitv2_base_cls.fb_inw21k': _cfg(
-        url='https://dl.fbaipublicfiles.com/mvit/mvitv2_models/MViTv2_B_in21k.pyth',
-        num_classes=19168),
-    'mvitv2_large_cls.fb_inw21k': _cfg(
-        url='https://dl.fbaipublicfiles.com/mvit/mvitv2_models/MViTv2_L_in21k.pyth',
-        num_classes=19168),
-    'mvitv2_huge_cls.fb_inw21k': _cfg(
-        url='https://dl.fbaipublicfiles.com/mvit/mvitv2_models/MViTv2_H_in21k.pyth',
-        num_classes=19168),
-})
+default_cfgs = generate_default_cfgs(
+    {
+        "mvitv2_tiny.fb_in1k": _cfg(
+            url="https://dl.fbaipublicfiles.com/mvit/mvitv2_models/MViTv2_T_in1k.pyth"
+        ),
+        "mvitv2_small.fb_in1k": _cfg(
+            url="https://dl.fbaipublicfiles.com/mvit/mvitv2_models/MViTv2_S_in1k.pyth"
+        ),
+        "mvitv2_base.fb_in1k": _cfg(
+            url="https://dl.fbaipublicfiles.com/mvit/mvitv2_models/MViTv2_B_in1k.pyth"
+        ),
+        "mvitv2_large.fb_in1k": _cfg(
+            url="https://dl.fbaipublicfiles.com/mvit/mvitv2_models/MViTv2_L_in1k.pyth"
+        ),
+        "mvitv2_small_cls": _cfg(url=""),
+        "mvitv2_base_cls.fb_inw21k": _cfg(
+            url="https://dl.fbaipublicfiles.com/mvit/mvitv2_models/MViTv2_B_in21k.pyth",
+            num_classes=19168,
+        ),
+        "mvitv2_large_cls.fb_inw21k": _cfg(
+            url="https://dl.fbaipublicfiles.com/mvit/mvitv2_models/MViTv2_L_in21k.pyth",
+            num_classes=19168,
+        ),
+        "mvitv2_huge_cls.fb_inw21k": _cfg(
+            url="https://dl.fbaipublicfiles.com/mvit/mvitv2_models/MViTv2_H_in21k.pyth",
+            num_classes=19168,
+        ),
+    }
+)
 
 
 def mvitv2_tiny(pretrained=False, **kwargs) -> MultiScaleVit:
-    return _create_mvitv2('mvitv2_tiny', pretrained=pretrained, **kwargs)
+    return _create_mvitv2("mvitv2_tiny", pretrained=pretrained, **kwargs)
 
 
 def mvitv2_small(pretrained=False, **kwargs) -> MultiScaleVit:
-    return _create_mvitv2('mvitv2_small', pretrained=pretrained, **kwargs)
+    return _create_mvitv2("mvitv2_small", pretrained=pretrained, **kwargs)
 
 
 def mvitv2_base(pretrained=False, **kwargs) -> MultiScaleVit:
-    return _create_mvitv2('mvitv2_base', pretrained=pretrained, **kwargs)
+    return _create_mvitv2("mvitv2_base", pretrained=pretrained, **kwargs)
 
 
 def mvitv2_large(pretrained=False, **kwargs) -> MultiScaleVit:
-    return _create_mvitv2('mvitv2_large', pretrained=pretrained, **kwargs)
+    return _create_mvitv2("mvitv2_large", pretrained=pretrained, **kwargs)
 
 
 def mvitv2_small_cls(pretrained=False, **kwargs) -> MultiScaleVit:
-    return _create_mvitv2('mvitv2_small_cls', pretrained=pretrained, **kwargs)
+    return _create_mvitv2("mvitv2_small_cls", pretrained=pretrained, **kwargs)
 
 
 def mvitv2_base_cls(pretrained=False, **kwargs) -> MultiScaleVit:
-    return _create_mvitv2('mvitv2_base_cls', pretrained=pretrained, **kwargs)
+    return _create_mvitv2("mvitv2_base_cls", pretrained=pretrained, **kwargs)
 
 
 def mvitv2_large_cls(pretrained=False, **kwargs) -> MultiScaleVit:
-    return _create_mvitv2('mvitv2_large_cls', pretrained=pretrained, **kwargs)
+    return _create_mvitv2("mvitv2_large_cls", pretrained=pretrained, **kwargs)
 
 
 def mvitv2_huge_cls(pretrained=False, **kwargs) -> MultiScaleVit:
-    return _create_mvitv2('mvitv2_huge_cls', pretrained=pretrained, **kwargs)
+    return _create_mvitv2("mvitv2_huge_cls", pretrained=pretrained, **kwargs)
 
 
 if __name__ == "__main__":
-    device = "cuda:0" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+    device = (
+        "cuda:0"
+        if torch.cuda.is_available()
+        else ("mps" if torch.backends.mps.is_available() else "cpu")
+    )
 
     x = torch.ones(1, 3, 224, 224).to(device)
     model = mvitv2_tiny(pretrained=False, num_classes=5).to(device)
@@ -1062,16 +1176,16 @@ if __name__ == "__main__":
     model.eval()
     with torch.inference_mode():
         y = model(x)
-    print(y.size()) # [1, 5]
+    print(y.size())  # [1, 5]
 
     if False:
-        onnx_path = 'mvitv2_tiny.onnx'
+        onnx_path = "mvitv2_tiny.onnx"
         torch.onnx.export(
             model,
             x,
             onnx_path,
-            input_names=['images'],
-            output_names=['classes'],
+            input_names=["images"],
+            output_names=["classes"],
         )
         import onnx
         from onnxsim import simplify
@@ -1083,4 +1197,4 @@ if __name__ == "__main__":
         model_simple, check = simplify(model_)
         assert check, "Simplified ONNX model could not be validated"
         onnx.save(model_simple, onnx_path)
-        print('finished exporting ' + onnx_path)
+        print("finished exporting " + onnx_path)

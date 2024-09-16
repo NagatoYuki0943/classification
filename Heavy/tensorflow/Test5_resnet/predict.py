@@ -31,10 +31,10 @@ def main():
     img = img - [_R_MEAN, _G_MEAN, _B_MEAN]
 
     # Add the image to a batch where it's the only member.
-    img = (np.expand_dims(img, 0))
+    img = np.expand_dims(img, 0)
 
     # read class_indict
-    json_path = './class_indices.json'
+    json_path = "./class_indices.json"
     assert os.path.exists(json_path), "file: '{}' dose not exist.".format(json_path)
 
     json_file = open(json_path, "r")
@@ -43,29 +43,34 @@ def main():
     # create model
     feature = resnet50(num_classes=num_classes, include_top=False)
     feature.trainable = False
-    model = tf.keras.Sequential([feature,
-                                 tf.keras.layers.GlobalAvgPool2D(),
-                                 tf.keras.layers.Dropout(rate=0.5),
-                                 tf.keras.layers.Dense(1024, activation="relu"),
-                                 tf.keras.layers.Dropout(rate=0.5),
-                                 tf.keras.layers.Dense(num_classes),
-                                 tf.keras.layers.Softmax()])
+    model = tf.keras.Sequential(
+        [
+            feature,
+            tf.keras.layers.GlobalAvgPool2D(),
+            tf.keras.layers.Dropout(rate=0.5),
+            tf.keras.layers.Dense(1024, activation="relu"),
+            tf.keras.layers.Dropout(rate=0.5),
+            tf.keras.layers.Dense(num_classes),
+            tf.keras.layers.Softmax(),
+        ]
+    )
 
     # load weights
-    weights_path = './save_weights/resNet_50.ckpt'
-    assert len(glob.glob(weights_path+"*")), "cannot find {}".format(weights_path)
+    weights_path = "./save_weights/resNet_50.ckpt"
+    assert len(glob.glob(weights_path + "*")), "cannot find {}".format(weights_path)
     model.load_weights(weights_path)
 
     # prediction
     result = np.squeeze(model.predict(img))
     predict_class = np.argmax(result)
 
-    print_res = "class: {}   prob: {:.3}".format(class_indict[str(predict_class)],
-                                                 result[predict_class])
+    print_res = "class: {}   prob: {:.3}".format(
+        class_indict[str(predict_class)], result[predict_class]
+    )
     plt.title(print_res)
     print(print_res)
     plt.show()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

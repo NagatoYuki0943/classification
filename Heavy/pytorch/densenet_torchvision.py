@@ -1,14 +1,18 @@
-'''
+"""
 densenet自带的预训练模型没法使用torch.load()加载,不过自己训练的模型可以加载
 121 161 169 201
-'''
+"""
 
 import torch
 from torch import nn
 from torchvision import models
 
 
-device = "cuda:0" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+device = (
+    "cuda:0"
+    if torch.cuda.is_available()
+    else ("mps" if torch.backends.mps.is_available() else "cpu")
+)
 
 x = torch.ones(1, 3, 224, 224).to(device)
 # densenet自带的预训练模型没法使用torch.load()加载,不过自己训练的模型可以加载

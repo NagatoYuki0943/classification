@@ -1,9 +1,9 @@
-'''
+"""
 Inception-ResNet-V2 不限制图像分辨率为299x299
 
 https://github.com/Cadene/pretrained-models.pytorch/blob/master/pretrainedmodels/models/inceptionresnetv2.py
 
-'''
+"""
 
 from __future__ import print_function, division, absolute_import
 import torch
@@ -11,47 +11,55 @@ import torch.nn as nn
 import torch.utils.model_zoo as model_zoo
 
 
-__all__ = ['InceptionResNetV2', 'inceptionresnetv2']
+__all__ = ["InceptionResNetV2", "inceptionresnetv2"]
 
 
 # 预训练模型的分类数是1001
 pretrained_settings = {
-    'inceptionresnetv2': {
-        'imagenet': {
-            'url': 'http://data.lip6.fr/cadene/pretrainedmodels/inceptionresnetv2-520b38e4.pth',
-            'input_space': 'RGB',
-            'input_size': [3, 299, 299],
-            'input_range': [0, 1],
-            'mean': [0.5, 0.5, 0.5],
-            'std': [0.5, 0.5, 0.5],
-            'num_classes': 1000
+    "inceptionresnetv2": {
+        "imagenet": {
+            "url": "http://data.lip6.fr/cadene/pretrainedmodels/inceptionresnetv2-520b38e4.pth",
+            "input_space": "RGB",
+            "input_size": [3, 299, 299],
+            "input_range": [0, 1],
+            "mean": [0.5, 0.5, 0.5],
+            "std": [0.5, 0.5, 0.5],
+            "num_classes": 1000,
         },
-        'imagenet+background': {
-            'url': 'http://data.lip6.fr/cadene/pretrainedmodels/inceptionresnetv2-520b38e4.pth',
-            'input_space': 'RGB',
-            'input_size': [3, 299, 299],
-            'input_range': [0, 1],
-            'mean': [0.5, 0.5, 0.5],
-            'std': [0.5, 0.5, 0.5],
-            'num_classes': 1001
-        }
+        "imagenet+background": {
+            "url": "http://data.lip6.fr/cadene/pretrainedmodels/inceptionresnetv2-520b38e4.pth",
+            "input_space": "RGB",
+            "input_size": [3, 299, 299],
+            "input_range": [0, 1],
+            "mean": [0.5, 0.5, 0.5],
+            "std": [0.5, 0.5, 0.5],
+            "num_classes": 1001,
+        },
     }
 }
 
 
 class BasicConv2d(nn.Module):
-    '''
+    """
     Conv2d + BN + ReLU
-    '''
+    """
+
     def __init__(self, in_planes, out_planes, kernel_size, stride, padding=0):
         super().__init__()
-        self.conv = nn.Conv2d(in_planes, out_planes,
-                              kernel_size=kernel_size, stride=stride,
-                              padding=padding, bias=False) # verify bias false,使用BN就将bias设置为False,不然浪费性能
-        self.bn = nn.BatchNorm2d(out_planes,
-                                 eps=0.001,    # value found in tensorflow
-                                 momentum=0.1, # default pytorch value
-                                 affine=True)
+        self.conv = nn.Conv2d(
+            in_planes,
+            out_planes,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            bias=False,
+        )  # verify bias false,使用BN就将bias设置为False,不然浪费性能
+        self.bn = nn.BatchNorm2d(
+            out_planes,
+            eps=0.001,  # value found in tensorflow
+            momentum=0.1,  # default pytorch value
+            affine=True,
+        )
         self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
@@ -62,11 +70,12 @@ class BasicConv2d(nn.Module):
 
 
 class Mixed_5b(nn.Module):
-    '''
+    """
     高宽不变
     in_channels  = 192
     out_channels = 96 + 64 + 96 + 64 = 320
-    '''
+    """
+
     def __init__(self):
         super().__init__()
 
@@ -74,18 +83,18 @@ class Mixed_5b(nn.Module):
 
         self.branch1 = nn.Sequential(
             BasicConv2d(192, 48, kernel_size=1, stride=1),
-            BasicConv2d(48, 64, kernel_size=5, stride=1, padding=2)
+            BasicConv2d(48, 64, kernel_size=5, stride=1, padding=2),
         )
 
         self.branch2 = nn.Sequential(
             BasicConv2d(192, 64, kernel_size=1, stride=1),
             BasicConv2d(64, 96, kernel_size=3, stride=1, padding=1),
-            BasicConv2d(96, 96, kernel_size=3, stride=1, padding=1)
+            BasicConv2d(96, 96, kernel_size=3, stride=1, padding=1),
         )
 
         self.branch3 = nn.Sequential(
             nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False),
-            BasicConv2d(192, 64, kernel_size=1, stride=1)
+            BasicConv2d(192, 64, kernel_size=1, stride=1),
         )
 
     def forward(self, x):
@@ -98,13 +107,14 @@ class Mixed_5b(nn.Module):
 
 
 class Block35(nn.Module):
-    '''
+    """
     残差模块
     通道,高宽不变
     高宽: 35 x 35
     in_channels  = out_channels = 320
     branch0, branch1, branch2拼接之后交给conv2d,再和输入x相加
-    '''
+    """
+
     def __init__(self, scale=1.0):
         super().__init__()
         # scale会乘以最后的结果然后和x相加
@@ -114,13 +124,13 @@ class Block35(nn.Module):
 
         self.branch1 = nn.Sequential(
             BasicConv2d(320, 32, kernel_size=1, stride=1),
-            BasicConv2d(32, 32, kernel_size=3, stride=1, padding=1)
+            BasicConv2d(32, 32, kernel_size=3, stride=1, padding=1),
         )
 
         self.branch2 = nn.Sequential(
             BasicConv2d(320, 32, kernel_size=1, stride=1),
             BasicConv2d(32, 48, kernel_size=3, stride=1, padding=1),
-            BasicConv2d(48, 64, kernel_size=3, stride=1, padding=1)
+            BasicConv2d(48, 64, kernel_size=3, stride=1, padding=1),
         )
 
         self.conv2d = nn.Conv2d(128, 320, kernel_size=1, stride=1)
@@ -140,13 +150,14 @@ class Block35(nn.Module):
 
 
 class Mixed_6a(nn.Module):
-    '''
+    """
     通道,高宽变化
     kernel_size=3, stride=2
     高宽: 35 x 35 => 17 x 17
     in_channels  = 320
     out_channels = 384 + 384 + 320 = 1088
-    '''
+    """
+
     def __init__(self):
         super().__init__()
 
@@ -155,7 +166,7 @@ class Mixed_6a(nn.Module):
         self.branch1 = nn.Sequential(
             BasicConv2d(320, 256, kernel_size=1, stride=1),
             BasicConv2d(256, 256, kernel_size=3, stride=1, padding=1),
-            BasicConv2d(256, 384, kernel_size=3, stride=2)
+            BasicConv2d(256, 384, kernel_size=3, stride=2),
         )
 
         self.branch2 = nn.MaxPool2d(3, stride=2)
@@ -169,13 +180,14 @@ class Mixed_6a(nn.Module):
 
 
 class Block17(nn.Module):
-    '''
+    """
     残差模块
     通道,高宽不变
     高宽: 17 x 17
     in_channels  = out_channels = 1088
     branch0, branch1拼接之后交给conv2d,再和输入x相加
-    '''
+    """
+
     def __init__(self, scale=1.0):
         super().__init__()
         # scale会乘以最后的结果然后和x相加
@@ -185,8 +197,8 @@ class Block17(nn.Module):
 
         self.branch1 = nn.Sequential(
             BasicConv2d(1088, 128, kernel_size=1, stride=1),
-            BasicConv2d(128, 160, kernel_size=(1,7), stride=1, padding=(0,3)),
-            BasicConv2d(160, 192, kernel_size=(7,1), stride=1, padding=(3,0))
+            BasicConv2d(128, 160, kernel_size=(1, 7), stride=1, padding=(0, 3)),
+            BasicConv2d(160, 192, kernel_size=(7, 1), stride=1, padding=(3, 0)),
         )
 
         self.conv2d = nn.Conv2d(384, 1088, kernel_size=1, stride=1)
@@ -205,30 +217,31 @@ class Block17(nn.Module):
 
 
 class Mixed_7a(nn.Module):
-    '''
+    """
     通道,宽高变化
     kernel_size=3, stride=2
     宽高: 17 x 17 => 8 x 8
     in_channels  = 1088
     out_channels = 384 + 288 + 320 + 1088 = 2080
-    '''
+    """
+
     def __init__(self):
         super().__init__()
 
         self.branch0 = nn.Sequential(
             BasicConv2d(1088, 256, kernel_size=1, stride=1),
-            BasicConv2d(256, 384, kernel_size=3, stride=2)
+            BasicConv2d(256, 384, kernel_size=3, stride=2),
         )
 
         self.branch1 = nn.Sequential(
             BasicConv2d(1088, 256, kernel_size=1, stride=1),
-            BasicConv2d(256, 288, kernel_size=3, stride=2)
+            BasicConv2d(256, 288, kernel_size=3, stride=2),
         )
 
         self.branch2 = nn.Sequential(
             BasicConv2d(1088, 256, kernel_size=1, stride=1),
             BasicConv2d(256, 288, kernel_size=3, stride=1, padding=1),
-            BasicConv2d(288, 320, kernel_size=3, stride=2)
+            BasicConv2d(288, 320, kernel_size=3, stride=2),
         )
 
         self.branch3 = nn.MaxPool2d(3, stride=2)
@@ -243,13 +256,14 @@ class Mixed_7a(nn.Module):
 
 
 class Block8(nn.Module):
-    '''
+    """
     残差模块
     通道,高宽不变
     高宽: 8 x 8
     in_channels  = out_channels = 2080
     branch0, branch1拼接之后交给conv2d,再和输入x相加
-    '''
+    """
+
     def __init__(self, scale=1.0, noReLU=False):
         super().__init__()
         # scale会乘以最后的结果然后和x相加
@@ -261,8 +275,8 @@ class Block8(nn.Module):
 
         self.branch1 = nn.Sequential(
             BasicConv2d(2080, 192, kernel_size=1, stride=1),
-            BasicConv2d(192, 224, kernel_size=(1,3), stride=1, padding=(0,1)),
-            BasicConv2d(224, 256, kernel_size=(3,1), stride=1, padding=(1,0))
+            BasicConv2d(192, 224, kernel_size=(1, 3), stride=1, padding=(0, 1)),
+            BasicConv2d(224, 256, kernel_size=(3, 1), stride=1, padding=(1, 0)),
         )
 
         self.conv2d = nn.Conv2d(448, 2080, kernel_size=1, stride=1)
@@ -284,7 +298,6 @@ class Block8(nn.Module):
 
 
 class InceptionResNetV2(nn.Module):
-
     def __init__(self, num_classes=1001):
         super().__init__()
         # Special attributs
@@ -314,7 +327,7 @@ class InceptionResNetV2(nn.Module):
             Block35(scale=0.17),
             Block35(scale=0.17),
             Block35(scale=0.17),
-            Block35(scale=0.17)
+            Block35(scale=0.17),
         )
         # [n, 320, 35, 35] => [n, 1088, 17, 17]
         self.mixed_6a = Mixed_6a()
@@ -339,7 +352,7 @@ class InceptionResNetV2(nn.Module):
             Block17(scale=0.10),
             Block17(scale=0.10),
             Block17(scale=0.10),
-            Block17(scale=0.10)
+            Block17(scale=0.10),
         )
         # [n, 1088, 17, 17] => [n, 2080, 8, 8]
         self.mixed_7a = Mixed_7a()
@@ -353,7 +366,7 @@ class InceptionResNetV2(nn.Module):
             Block8(scale=0.20),
             Block8(scale=0.20),
             Block8(scale=0.20),
-            Block8(scale=0.20)
+            Block8(scale=0.20),
         )
         # [n, 2080, 8, 8] => [n, 2080, 8, 8] 通道,高宽不变
         self.block8 = Block8(noReLU=True)
@@ -395,9 +408,9 @@ class InceptionResNetV2(nn.Module):
         return x
 
     def logits(self, features):
-        '''
+        """
         分类层
-        '''
+        """
         # [n, 1536, 8, 8] => [n, 1536, 1, 1]
         x = self.avgpool_1a(features)
         # [n, 1536, 1, 1] => [n, 1536]
@@ -412,44 +425,51 @@ class InceptionResNetV2(nn.Module):
         return x
 
 
-def inceptionresnetv2(num_classes=1000, pretrained='imagenet'):
+def inceptionresnetv2(num_classes=1000, pretrained="imagenet"):
     r"""InceptionResNetV2 model architecture from the
     `"InceptionV4, Inception-ResNet..." <https://arxiv.org/abs/1602.07261>`_ paper.
     """
     # 使用预训练模型
     if pretrained:
-        settings = pretrained_settings['inceptionresnetv2'][pretrained]
+        settings = pretrained_settings["inceptionresnetv2"][pretrained]
         # 分类数必须和配置中的分类相同
-        assert num_classes == settings['num_classes'], \
-            "num_classes should be {}, but is {}".format(settings['num_classes'], num_classes)
+        assert (
+            num_classes == settings["num_classes"]
+        ), "num_classes should be {}, but is {}".format(
+            settings["num_classes"], num_classes
+        )
 
         # 创建模型,加载预训练模型,预训练模型的分类数是1001
         # both 'imagenet'&'imagenet+background' are loaded from same parameters
         model = InceptionResNetV2(num_classes=1001)
-        model.load_state_dict(model_zoo.load_url(settings['url']))
+        model.load_state_dict(model_zoo.load_url(settings["url"]))
 
         # 调整最后的分类层
-        if pretrained == 'imagenet':
+        if pretrained == "imagenet":
             new_last_linear = nn.Linear(1536, 1000)
             new_last_linear.weight.data = model.last_linear.weight.data[1:]
             new_last_linear.bias.data = model.last_linear.bias.data[1:]
             model.last_linear = new_last_linear
 
         # 设置输入内容
-        model.input_space = settings['input_space']
-        model.input_size = settings['input_size']
-        model.input_range = settings['input_range']
+        model.input_space = settings["input_space"]
+        model.input_size = settings["input_size"]
+        model.input_range = settings["input_range"]
 
         # 设置均值和方差
-        model.mean = settings['mean']
-        model.std = settings['std']
+        model.mean = settings["mean"]
+        model.std = settings["std"]
     else:
         model = InceptionResNetV2(num_classes=num_classes)
     return model
 
 
-if __name__ == '__main__':
-    device = "cuda:0" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+if __name__ == "__main__":
+    device = (
+        "cuda:0"
+        if torch.cuda.is_available()
+        else ("mps" if torch.backends.mps.is_available() else "cpu")
+    )
 
     x = torch.ones(1, 3, 299, 299).to(device)
     # 预训练模型的分类数是1001
@@ -463,4 +483,4 @@ if __name__ == '__main__':
     model.eval()
     with torch.inference_mode():
         y = model(x)
-    print(y.size()) # [1, 5]
+    print(y.size())  # [1, 5]

@@ -1,9 +1,8 @@
-'''
+"""
 subclassed 类似pytorch写法
 keras的block继承自keras.layers.Layer
 主体模型继承自keras.Model
-'''
-
+"""
 
 from tensorflow.keras import layers, Model, Sequential
 
@@ -14,13 +13,19 @@ class BasicBlock(layers.Layer):
     def __init__(self, out_channel, strides=1, downsample=None, **kwargs):
         super().__init__(**kwargs)
 
-        '''
+        """
         注意: 顺序 conv => bn => relu 所以Conv2D的参数不设置激活函数,要手动调用
-        '''
-        self.conv1 = layers.Conv2D(out_channel, kernel_size=3, strides=strides, padding="SAME", use_bias=False) # 使用BatchNormalization就让bias为False
-        self.bn1 = layers.BatchNormalization(momentum=0.9, epsilon=1e-5)    # keras的BN不需要写channels
+        """
+        self.conv1 = layers.Conv2D(
+            out_channel, kernel_size=3, strides=strides, padding="SAME", use_bias=False
+        )  # 使用BatchNormalization就让bias为False
+        self.bn1 = layers.BatchNormalization(
+            momentum=0.9, epsilon=1e-5
+        )  # keras的BN不需要写channels
         # -----------------------------------------
-        self.conv2 = layers.Conv2D(out_channel, kernel_size=3, strides=1, padding="SAME", use_bias=False)
+        self.conv2 = layers.Conv2D(
+            out_channel, kernel_size=3, strides=1, padding="SAME", use_bias=False
+        )
         self.bn2 = layers.BatchNormalization(momentum=0.9, epsilon=1e-5)
         # -----------------------------------------
         # 下采样层
@@ -31,9 +36,9 @@ class BasicBlock(layers.Layer):
         self.add = layers.Add()
 
     def call(self, inputs, training=False):
-        '''
+        """
         training: 是否使用训练
-        '''
+        """
 
         identity = inputs
         # 下采样层
@@ -42,7 +47,7 @@ class BasicBlock(layers.Layer):
 
         x = self.conv1(inputs)
         x = self.bn1(x, training=training)  # 要设置training,训练和验证状态不同
-        x = self.relu(x)                    # 手动调用激活函数
+        x = self.relu(x)  # 手动调用激活函数
 
         x = self.conv2(x)
         x = self.bn2(x, training=training)
@@ -61,23 +66,41 @@ class Bottleneck(layers.Layer):
     这么做的好处是能够在top1上提升大概0.5%的准确率。
     可参考Resnet v1.5 https://ngc.nvidia.com/catalog/model-scripts/nvidia:resnet_50_v1_5_for_pytorch
     """
+
     expansion = 4
 
     def __init__(self, out_channel, strides=1, downsample=None, **kwargs):
         super().__init__(**kwargs)
 
-        '''
+        """
         注意: 顺序 conv => bn => relu 所以Conv2D的参数不设置激活函数,要手动调用
-        '''
-        self.conv1 = layers.Conv2D(out_channel, kernel_size=1, use_bias=False, name="conv1")        # name: 迁移学习时会用到
-        self.bn1 = layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name="conv1/BatchNorm")
+        """
+        self.conv1 = layers.Conv2D(
+            out_channel, kernel_size=1, use_bias=False, name="conv1"
+        )  # name: 迁移学习时会用到
+        self.bn1 = layers.BatchNormalization(
+            momentum=0.9, epsilon=1e-5, name="conv1/BatchNorm"
+        )
         # -----------------------------------------
-        self.conv2 = layers.Conv2D(out_channel, kernel_size=3, use_bias=False, strides=strides, padding="SAME", name="conv2")
-        self.bn2 = layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name="conv2/BatchNorm")
+        self.conv2 = layers.Conv2D(
+            out_channel,
+            kernel_size=3,
+            use_bias=False,
+            strides=strides,
+            padding="SAME",
+            name="conv2",
+        )
+        self.bn2 = layers.BatchNormalization(
+            momentum=0.9, epsilon=1e-5, name="conv2/BatchNorm"
+        )
         # -----------------------------------------
         # out_channel 发生变化
-        self.conv3 = layers.Conv2D(out_channel * self.expansion, kernel_size=1, use_bias=False, name="conv3")
-        self.bn3 = layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name="conv3/BatchNorm")
+        self.conv3 = layers.Conv2D(
+            out_channel * self.expansion, kernel_size=1, use_bias=False, name="conv3"
+        )
+        self.bn3 = layers.BatchNormalization(
+            momentum=0.9, epsilon=1e-5, name="conv3/BatchNorm"
+        )
         # -----------------------------------------
         self.relu = layers.ReLU()
         self.downsample = downsample
@@ -86,17 +109,17 @@ class Bottleneck(layers.Layer):
         self.add = layers.Add()
 
     def call(self, inputs, training=False):
-        '''
+        """
         training: 是否使用训练
-        '''
+        """
 
         identity = inputs
         if self.downsample is not None:
             identity = self.downsample(inputs)
 
         x = self.conv1(inputs)
-        x = self.bn1(x, training=training)      # 要设置training,训练和验证状态不同
-        x = self.relu(x)                        # 手动调用激活函数
+        x = self.bn1(x, training=training)  # 要设置training,训练和验证状态不同
+        x = self.relu(x)  # 手动调用激活函数
 
         x = self.conv2(x)
         x = self.bn2(x, training=training)
@@ -116,15 +139,32 @@ class ResNet(Model):
     def __init__(self, block, blocks_num, num_classes=1000, include_top=True, **kwargs):
         super(ResNet, self).__init__(**kwargs)
         self.include_top = include_top
-        self.conv1 = layers.Conv2D(filters=64, kernel_size=7, strides=2, padding="SAME", use_bias=False, name="conv1")
-        self.bn1 = layers.BatchNormalization(momentum=0.9, epsilon=1.001e-5, name="conv1/BatchNorm")
+        self.conv1 = layers.Conv2D(
+            filters=64,
+            kernel_size=7,
+            strides=2,
+            padding="SAME",
+            use_bias=False,
+            name="conv1",
+        )
+        self.bn1 = layers.BatchNormalization(
+            momentum=0.9, epsilon=1.001e-5, name="conv1/BatchNorm"
+        )
         self.relu1 = layers.ReLU(name="relu1")
-        self.maxpool1 = layers.MaxPool2D(pool_size=3, strides=2, padding="SAME", name="maxpool1")
+        self.maxpool1 = layers.MaxPool2D(
+            pool_size=3, strides=2, padding="SAME", name="maxpool1"
+        )
 
         self.block1 = self._make_layer(block, True, 64, blocks_num[0], name="block1")
-        self.block2 = self._make_layer(block, False, 128, blocks_num[1], strides=2, name="block2")
-        self.block3 = self._make_layer(block, False, 256, blocks_num[2], strides=2, name="block3")
-        self.block4 = self._make_layer(block, False, 512, blocks_num[3], strides=2, name="block4")
+        self.block2 = self._make_layer(
+            block, False, 128, blocks_num[1], strides=2, name="block2"
+        )
+        self.block3 = self._make_layer(
+            block, False, 256, blocks_num[2], strides=2, name="block3"
+        )
+        self.block4 = self._make_layer(
+            block, False, 512, blocks_num[3], strides=2, name="block4"
+        )
 
         if self.include_top:
             self.avgpool = layers.GlobalAvgPool2D(name="avgpool1")
@@ -152,14 +192,26 @@ class ResNet(Model):
     def _make_layer(self, block, first_block, channel, block_num, name=None, strides=1):
         downsample = None
         if strides != 1 or first_block is True:
-            downsample = Sequential([
-                layers.Conv2D(channel * block.expansion, kernel_size=1, strides=strides,
-                              use_bias=False, name="conv1"),
-                layers.BatchNormalization(momentum=0.9, epsilon=1.001e-5, name="BatchNorm")
-            ], name="shortcut")
+            downsample = Sequential(
+                [
+                    layers.Conv2D(
+                        channel * block.expansion,
+                        kernel_size=1,
+                        strides=strides,
+                        use_bias=False,
+                        name="conv1",
+                    ),
+                    layers.BatchNormalization(
+                        momentum=0.9, epsilon=1.001e-5, name="BatchNorm"
+                    ),
+                ],
+                name="shortcut",
+            )
 
         layers_list = []
-        layers_list.append(block(channel, downsample=downsample, strides=strides, name="unit_1"))
+        layers_list.append(
+            block(channel, downsample=downsample, strides=strides, name="unit_1")
+        )
 
         for index in range(1, block_num):
             layers_list.append(block(channel, name="unit_" + str(index + 1)))
@@ -177,6 +229,3 @@ def resnet101(num_classes=1000, include_top=True):
     block = Bottleneck
     blocks_num = [3, 4, 23, 3]
     return ResNet(block, blocks_num, num_classes, include_top)
-
-
-

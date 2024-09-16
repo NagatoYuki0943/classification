@@ -5,11 +5,16 @@ from timm.layers import DropPath
 from functools import partial
 
 
-device = "cuda:0" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+device = (
+    "cuda:0"
+    if torch.cuda.is_available()
+    else ("mps" if torch.backends.mps.is_available() else "cpu")
+)
 
 
 class PatchEmbed(nn.Module):
-    def __init__(self,
+    def __init__(
+        self,
         in_channels: int,
         embedding_size: int,
         patch_size: int,
@@ -17,13 +22,17 @@ class PatchEmbed(nn.Module):
     ) -> None:
         super().__init__()
         self.embedding_size = embedding_size
-        self.conv = nn.Conv2d(in_channels, embedding_size, kernel_size=patch_size, stride=patch_size)
+        self.conv = nn.Conv2d(
+            in_channels, embedding_size, kernel_size=patch_size, stride=patch_size
+        )
         self.norm = norm_layer(embedding_size)
 
     def forward(self, x: Tensor) -> Tensor:
-        x = self.conv(x)                    # [B, 3, 224, 224] -> [B, 768, 14, 14]
-        x = x.flatten(2).permute(0, 2, 1)   # [B, 768, 14, 14] -> [B, 768, 196] -> [B, 196, 768]
-        x = self.norm(x)                    # ❗❗❗important❗❗❗
+        x = self.conv(x)  # [B, 3, 224, 224] -> [B, 768, 14, 14]
+        x = x.flatten(2).permute(
+            0, 2, 1
+        )  # [B, 768, 14, 14] -> [B, 768, 196] -> [B, 196, 768]
+        x = self.norm(x)  # ❗❗❗important❗❗❗
         return x
 
 
@@ -43,8 +52,8 @@ class Attention(nn.Module):
         dim: int,
         num_heads: int,
         qkv_bias: bool = False,
-        attn_drop_ratio: float = 0.,
-        proj_drop_ratio: float = 0.,
+        attn_drop_ratio: float = 0.0,
+        proj_drop_ratio: float = 0.0,
     ) -> None:
         super().__init__()
         assert dim % num_heads == 0
@@ -60,24 +69,36 @@ class Attention(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         B, N, C = x.shape
 
-        qkv: Tensor = self.qkv(x)                               # [B, N, C] -> [B, N, 3*C]
-        qkv = qkv.view(B, N, 3, self.num_heads, self.head_dim)  # [B, N, 3*C] -> [B, N, 3, num_heads, head_dim]
-        qkv = qkv.permute(2, 0, 3, 1, 4).contiguous()           # [B, N, 3, num_heads, head_dim] -> [3, B, num_heads, N, head_dim]
+        qkv: Tensor = self.qkv(x)  # [B, N, C] -> [B, N, 3*C]
+        qkv = qkv.view(
+            B, N, 3, self.num_heads, self.head_dim
+        )  # [B, N, 3*C] -> [B, N, 3, num_heads, head_dim]
+        qkv = (
+            qkv.permute(2, 0, 3, 1, 4).contiguous()
+        )  # [B, N, 3, num_heads, head_dim] -> [3, B, num_heads, N, head_dim]
         q: Tensor
         k: Tensor
         v: Tensor
-        q, k, v = qkv.unbind(0)                                 # [3, B, num_heads, N, head_dim] -> 3 * [B, num_heads, N, head_dim]
+        q, k, v = qkv.unbind(
+            0
+        )  # [3, B, num_heads, N, head_dim] -> 3 * [B, num_heads, N, head_dim]
 
-        attn: Tensor = q @ k.transpose(-1, -2) / self.scale # [B, num_heads, N, head_dim] @ [B, num_heads, head_dim, N] = [B, num_heads, N, N]
+        attn: Tensor = (
+            q @ k.transpose(-1, -2) / self.scale
+        )  # [B, num_heads, N, head_dim] @ [B, num_heads, head_dim, N] = [B, num_heads, N, N]
         attn = attn.softmax(-1)
-        attn = self.attn_drop(attn) # ❗❗❗important❗❗❗
+        attn = self.attn_drop(attn)  # ❗❗❗important❗❗❗
 
-        x = attn @ v                # [B, num_heads, N, N] @ [B, num_heads, N, head_dim] = [B, num_heads, N, head_dim]
-        x = x.transpose(1, 2)       # [B, num_heads, N, head_dim] -> [B, N, num_heads, head_dim]
-        x = x.reshape(B, N, C)      # [B, N, num_heads, head_dim] -> [B, N, C]
+        x = (
+            attn @ v
+        )  # [B, num_heads, N, N] @ [B, num_heads, N, head_dim] = [B, num_heads, N, head_dim]
+        x = x.transpose(
+            1, 2
+        )  # [B, num_heads, N, head_dim] -> [B, N, num_heads, head_dim]
+        x = x.reshape(B, N, C)  # [B, N, num_heads, head_dim] -> [B, N, C]
 
-        x = self.proj(x)            # [B, N, C] -> [B, N, C]
-        x = self.proj_drop(x)       # ❗❗❗important❗❗❗
+        x = self.proj(x)  # [B, N, C] -> [B, N, C]
+        x = self.proj_drop(x)  # ❗❗❗important❗❗❗
         return x
 
 
@@ -96,10 +117,10 @@ class Mlp(nn.Module):
         self,
         dim: int,
         mlp_ratio: int = 4,
-        act_layer = nn.GELU,
+        act_layer=nn.GELU,
         norm_layer=None,
         bias=True,
-        drop_ratio: float = 0.,
+        drop_ratio: float = 0.0,
     ) -> None:
         super().__init__()
         hidden_dim = int(dim * mlp_ratio)
@@ -112,11 +133,11 @@ class Mlp(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.fc1(x)
-        x = self.act(x)     # ❗❗❗important❗❗❗
-        x = self.drop1(x)   # ❗❗❗important❗❗❗
-        x = self.norm(x)    # ❗❗❗important❗❗❗
+        x = self.act(x)  # ❗❗❗important❗❗❗
+        x = self.drop1(x)  # ❗❗❗important❗❗❗
+        x = self.norm(x)  # ❗❗❗important❗❗❗
         x = self.fc2(x)
-        x = self.drop2(x)   # ❗❗❗important❗❗❗
+        x = self.drop2(x)  # ❗❗❗important❗❗❗
         return x
 
 
@@ -150,18 +171,20 @@ class TransfromerBlock(nn.Module):
         dim: int,
         num_heads: int,
         qkv_bias: bool = False,
-        attn_drop_ratio: float = 0.,
-        proj_drop_ratio: float = 0.,
-        drop_path_ratio: float = 0.,
+        attn_drop_ratio: float = 0.0,
+        proj_drop_ratio: float = 0.0,
+        drop_path_ratio: float = 0.0,
         mlp_ratio: int = 4,
-        mlp_drop_ratio: float = 0.,
+        mlp_drop_ratio: float = 0.0,
         act_layer=nn.GELU,
         norm_layer=nn.LayerNorm,
     ) -> None:
         super().__init__()
 
         self.norm1 = norm_layer(dim)
-        self.attn = Attention(dim, num_heads, qkv_bias, attn_drop_ratio, proj_drop_ratio)
+        self.attn = Attention(
+            dim, num_heads, qkv_bias, attn_drop_ratio, proj_drop_ratio
+        )
         self.ls1 = LayerScale(dim)  # 原本vit没用layerscale,自己添加的
         self.drop_path1 = DropPath(drop_path_ratio)
 
@@ -171,8 +194,12 @@ class TransfromerBlock(nn.Module):
         self.drop_path2 = DropPath(drop_path_ratio)
 
     def forward(self, x: Tensor) -> Tensor:
-        x = x + self.drop_path1(self.ls1(self.attn(self.norm1(x)))) # ❗❗❗important❗❗❗
-        x = x + self.drop_path2(self.ls2(self.mlp(self.norm2(x))))  # ❗❗❗important❗❗❗
+        x = x + self.drop_path1(
+            self.ls1(self.attn(self.norm1(x)))
+        )  # ❗❗❗important❗❗❗
+        x = x + self.drop_path2(
+            self.ls2(self.mlp(self.norm2(x)))
+        )  # ❗❗❗important❗❗❗
         return x
 
 
@@ -197,14 +224,14 @@ class VisionTransfromer(nn.Module):
         num_blocks: int = 12,
         num_heads: int = 12,
         qkv_bias: bool = True,
-        position_drop_ratio: float = 0.,
-        attn_drop_ratio: float = 0.,
-        proj_drop_ratio: float = 0.,
-        drop_path_ratio: float = 0.,
+        position_drop_ratio: float = 0.0,
+        attn_drop_ratio: float = 0.0,
+        proj_drop_ratio: float = 0.0,
+        drop_path_ratio: float = 0.0,
         mlp_ratio: int = 4,
-        mlp_drop_ratio: float = 0.,
-        act_layer = nn.GELU,
-        norm_layer = None,
+        mlp_drop_ratio: float = 0.0,
+        act_layer=nn.GELU,
+        norm_layer=None,
         use_cls_token: bool = True,
     ) -> None:
         super().__init__()
@@ -229,18 +256,20 @@ class VisionTransfromer(nn.Module):
         # TransfromerBlock
         # drop_path_ratio 等差数列
         dpr = [x.item() for x in torch.linspace(0, drop_path_ratio, num_blocks)]
-        blocks = [TransfromerBlock(
-            dim=dim,
-            num_heads=num_heads,
-            qkv_bias=qkv_bias,
-            attn_drop_ratio=attn_drop_ratio,
-            proj_drop_ratio=proj_drop_ratio,
-            drop_path_ratio=dpr[i],
-            mlp_ratio=mlp_ratio,
-            mlp_drop_ratio=mlp_drop_ratio,
-            act_layer=act_layer,
-            norm_layer=norm_layer,
-        )   for i in range(num_blocks)
+        blocks = [
+            TransfromerBlock(
+                dim=dim,
+                num_heads=num_heads,
+                qkv_bias=qkv_bias,
+                attn_drop_ratio=attn_drop_ratio,
+                proj_drop_ratio=proj_drop_ratio,
+                drop_path_ratio=dpr[i],
+                mlp_ratio=mlp_ratio,
+                mlp_drop_ratio=mlp_drop_ratio,
+                act_layer=act_layer,
+                norm_layer=norm_layer,
+            )
+            for i in range(num_blocks)
         ]
         self.blocks = nn.Sequential(*blocks)
         self.norm = norm_layer(dim)
@@ -252,26 +281,28 @@ class VisionTransfromer(nn.Module):
         B, *_ = x.shape
 
         # PatchEmbed
-        x = self.patch_embed(x) # [B, 3, 224, 224] -> [B, 196, 768]
+        x = self.patch_embed(x)  # [B, 3, 224, 224] -> [B, 196, 768]
 
         # cls_token & position_embed
         if self.use_cls_token:
-            x = torch.cat((self.cls_token.expand(B, -1, -1), x), dim=1) # [1, 1, 768] -> [B, 1, 768] cat [B, 196, 768] -> [B, 197, 768]
-        x = x + self.position_embed # [B, 197, 768] + [1, 197, 768] = [B, 197, 768]
-        x = self.position_drop(x)   # ❗❗❗important❗❗❗
+            x = torch.cat(
+                (self.cls_token.expand(B, -1, -1), x), dim=1
+            )  # [1, 1, 768] -> [B, 1, 768] cat [B, 196, 768] -> [B, 197, 768]
+        x = x + self.position_embed  # [B, 197, 768] + [1, 197, 768] = [B, 197, 768]
+        x = self.position_drop(x)  # ❗❗❗important❗❗❗
 
         # TransfromerBlock
-        x = self.blocks(x)      # [B, 197, 768] -> [B, 197, 768]
-        x = self.norm(x)        # ❗❗❗important❗❗❗
+        x = self.blocks(x)  # [B, 197, 768] -> [B, 197, 768]
+        x = self.norm(x)  # ❗❗❗important❗❗❗
 
         # get classes layer
         if self.use_cls_token:
-            x = x[:, 0, :]      # [B, 197, 768] get [B, 768]
+            x = x[:, 0, :]  # [B, 197, 768] get [B, 768]
         else:
-            x = x.mean(dim=1)   # [B, 196, 768] -> [B, 768]
+            x = x.mean(dim=1)  # [B, 196, 768] -> [B, 768]
 
         # linear
-        x = self.fc(x)          # [B, 768] -> [B, num_classes]
+        x = self.fc(x)  # [B, 768] -> [B, num_classes]
         return x
 
 
@@ -283,7 +314,7 @@ def vit_base_patch16_224(num_classes: int = 1000):
         dim=768,
         num_blocks=12,
         num_heads=12,
-        use_cls_token=True
+        use_cls_token=True,
     )
     return model
 
@@ -296,7 +327,7 @@ def test_vit():
     vit.eval()
     with torch.inference_mode():
         y = vit(x)
-    print(y.size()) # [10, 5]
+    print(y.size())  # [10, 5]
 
 
 if __name__ == "__main__":

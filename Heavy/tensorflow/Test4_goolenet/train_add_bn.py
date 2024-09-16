@@ -11,8 +11,12 @@ from model_add_bn import InceptionV1
 
 
 def main():
-    data_root = os.path.abspath(os.path.join(os.getcwd(), "../.."))  # get data root path
-    image_path = os.path.join(data_root, "data_set", "flower_data")  # flower data set path
+    data_root = os.path.abspath(
+        os.path.join(os.getcwd(), "../..")
+    )  # get data root path
+    image_path = os.path.join(
+        data_root, "data_set", "flower_data"
+    )  # flower data set path
     train_dir = os.path.join(image_path, "train")
     validation_dir = os.path.join(image_path, "val")
     assert os.path.exists(train_dir), "cannot find {}".format(train_dir)
@@ -30,22 +34,25 @@ def main():
     def pre_function(img: np.ndarray):
         # img = im.open('test.jpg')
         # img = np.array(img).astype(np.float32)
-        img = img / 255.
+        img = img / 255.0
         img = img - [0.485, 0.456, 0.406]
         img = img / [0.229, 0.224, 0.225]
 
         return img
 
     # data generator with data augmentation
-    train_image_generator = ImageDataGenerator(preprocessing_function=pre_function,
-                                               horizontal_flip=True)
+    train_image_generator = ImageDataGenerator(
+        preprocessing_function=pre_function, horizontal_flip=True
+    )
     validation_image_generator = ImageDataGenerator(preprocessing_function=pre_function)
 
-    train_data_gen = train_image_generator.flow_from_directory(directory=train_dir,
-                                                               batch_size=batch_size,
-                                                               shuffle=True,
-                                                               target_size=(im_height, im_width),
-                                                               class_mode='categorical')
+    train_data_gen = train_image_generator.flow_from_directory(
+        directory=train_dir,
+        batch_size=batch_size,
+        shuffle=True,
+        target_size=(im_height, im_width),
+        class_mode="categorical",
+    )
     total_train = train_data_gen.n
 
     # get class dict
@@ -55,23 +62,32 @@ def main():
     inverse_dict = dict((val, key) for key, val in class_indices.items())
     # write dict into json file
     json_str = json.dumps(inverse_dict, indent=4)
-    with open('class_indices.json', 'w') as json_file:
+    with open("class_indices.json", "w") as json_file:
         json_file.write(json_str)
 
-    val_data_gen = validation_image_generator.flow_from_directory(directory=validation_dir,
-                                                                  batch_size=batch_size,
-                                                                  shuffle=False,
-                                                                  target_size=(im_height, im_width),
-                                                                  class_mode='categorical')
+    val_data_gen = validation_image_generator.flow_from_directory(
+        directory=validation_dir,
+        batch_size=batch_size,
+        shuffle=False,
+        target_size=(im_height, im_width),
+        class_mode="categorical",
+    )
     total_val = val_data_gen.n
-    print("using {} images for training, {} images for validation.".format(total_train,
-                                                                           total_val))
+    print(
+        "using {} images for training, {} images for validation.".format(
+            total_train, total_val
+        )
+    )
 
-    model = InceptionV1(im_height=im_height, im_width=im_width, class_num=5, aux_logits=True)
+    model = InceptionV1(
+        im_height=im_height, im_width=im_width, class_num=5, aux_logits=True
+    )
     # model.build((batch_size, 224, 224, 3))  # when using subclass model
 
-    pre_weights_path = './pretrain_weights.ckpt'
-    assert len(glob.glob(pre_weights_path+"*")), "cannot find {}".format(pre_weights_path)
+    pre_weights_path = "./pretrain_weights.ckpt"
+    assert len(glob.glob(pre_weights_path + "*")), "cannot find {}".format(
+        pre_weights_path
+    )
     model.load_weights(pre_weights_path)
     model.summary()
 
@@ -79,11 +95,11 @@ def main():
     loss_object = tf.keras.losses.CategoricalCrossentropy(from_logits=False)
     optimizer = tf.keras.optimizers.Adam(learning_rate=0.0005)
 
-    train_loss = tf.keras.metrics.Mean(name='train_loss')
-    train_accuracy = tf.keras.metrics.CategoricalAccuracy(name='train_accuracy')
+    train_loss = tf.keras.metrics.Mean(name="train_loss")
+    train_accuracy = tf.keras.metrics.CategoricalAccuracy(name="train_accuracy")
 
-    val_loss = tf.keras.metrics.Mean(name='val_loss')
-    val_accuracy = tf.keras.metrics.CategoricalAccuracy(name='val_accuracy')
+    val_loss = tf.keras.metrics.Mean(name="val_loss")
+    val_accuracy = tf.keras.metrics.CategoricalAccuracy(name="val_accuracy")
 
     @tf.function
     def train_step(images, labels):
@@ -107,7 +123,7 @@ def main():
         val_loss(loss)
         val_accuracy(labels, output)
 
-    best_val_acc = 0.
+    best_val_acc = 0.0
     for epoch in range(epochs):
         train_loss.reset_states()  # clear history info
         train_accuracy.reset_states()  # clear history info
@@ -121,10 +137,9 @@ def main():
             train_step(images, labels)
 
             # print train process
-            train_bar.desc = "train epoch[{}/{}] loss:{:.3f}, acc:{:.3f}".format(epoch + 1,
-                                                                                 epochs,
-                                                                                 train_loss.result(),
-                                                                                 train_accuracy.result())
+            train_bar.desc = "train epoch[{}/{}] loss:{:.3f}, acc:{:.3f}".format(
+                epoch + 1, epochs, train_loss.result(), train_accuracy.result()
+            )
 
         # validate
         val_bar = tqdm(range(total_val // batch_size))
@@ -133,10 +148,9 @@ def main():
             val_step(val_images, val_labels)
 
             # print val process
-            val_bar.desc = "valid epoch[{}/{}] loss:{:.3f}, acc:{:.3f}".format(epoch + 1,
-                                                                               epochs,
-                                                                               val_loss.result(),
-                                                                               val_accuracy.result())
+            val_bar.desc = "valid epoch[{}/{}] loss:{:.3f}, acc:{:.3f}".format(
+                epoch + 1, epochs, val_loss.result(), val_accuracy.result()
+            )
 
         # only save best weights
         if val_accuracy.result() > best_val_acc:
@@ -144,5 +158,5 @@ def main():
             model.save_weights("./save_weights/myInceptionV1.ckpt")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

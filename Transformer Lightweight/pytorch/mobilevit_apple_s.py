@@ -98,7 +98,7 @@ class ConvLayer(nn.Module):
             stride=stride,
             groups=groups,
             padding=padding,
-            bias=bias
+            bias=bias,
         )
 
         block.add_module(name="conv", module=conv_layer)
@@ -117,7 +117,7 @@ class ConvLayer(nn.Module):
         return self.block(x)
 
 
-#--------------------------------------#
+# --------------------------------------#
 #   倒残差结构
 #   残差:   两端channel多,中间channel少
 #       降维 --> 升维
@@ -125,7 +125,7 @@ class ConvLayer(nn.Module):
 #       升维 --> 降维
 #   1x1 3x3DWConv 1x1
 #   最后的1x1Conv没有激活函数
-#--------------------------------------#
+# --------------------------------------#
 class InvertedResidual(nn.Module):
     """
     This class implements the inverted residual block, as described in `MobileNetv2 <https://arxiv.org/abs/1801.04381>`_ paper
@@ -161,9 +161,7 @@ class InvertedResidual(nn.Module):
             block.add_module(
                 name="exp_1x1",
                 module=ConvLayer(
-                    in_channels=in_channels,
-                    out_channels=hidden_dim,
-                    kernel_size=1
+                    in_channels=in_channels, out_channels=hidden_dim, kernel_size=1
                 ),
             )
         # 进行3x3的DW卷积
@@ -174,7 +172,7 @@ class InvertedResidual(nn.Module):
                 out_channels=hidden_dim,
                 stride=stride,
                 kernel_size=3,
-                groups=hidden_dim   # in_channels = out_channels = groups
+                groups=hidden_dim,  # in_channels = out_channels = groups
             ),
         )
         # 利用1x1卷积进行通道数的调整,没有激活函数
@@ -206,11 +204,11 @@ class InvertedResidual(nn.Module):
             return self.block(x)
 
 
-#---------------------------------------------------#
+# ---------------------------------------------------#
 #   [N, P, C] -> [N, h, P, c] @ [N, h, c, P] @ [N, h, P, c] = [N, P, C]
 #   C = h * c
 #   这里的N不是Batch,因为将特征图划分为了2x2的patch,对应位置和对应位置做自注意力,所以 N = 4B
-#---------------------------------------------------#
+# ---------------------------------------------------#
 class MultiHeadAttention(nn.Module):
     """
     This layer applies a multi-head self- or cross-attention as described in
@@ -233,7 +231,7 @@ class MultiHeadAttention(nn.Module):
         attn_dropout: float = 0.0,
         bias: bool = True,
         *args,
-        **kwargs
+        **kwargs,
     ) -> None:
         super().__init__()
         if embed_dim % num_heads != 0:
@@ -243,14 +241,18 @@ class MultiHeadAttention(nn.Module):
                 )
             )
         # 全连接层,直接使用一个全连接层实现求qkv,不使用3个,这样输出长度是3,和用3个一样
-        self.qkv_proj = nn.Linear(in_features=embed_dim, out_features=3 * embed_dim, bias=bias)
+        self.qkv_proj = nn.Linear(
+            in_features=embed_dim, out_features=3 * embed_dim, bias=bias
+        )
 
         self.attn_dropout = nn.Dropout(p=attn_dropout)
         # 全连接层,处理拼接后的多头自注意力的输出
-        self.out_proj = nn.Linear(in_features=embed_dim, out_features=embed_dim, bias=bias)
+        self.out_proj = nn.Linear(
+            in_features=embed_dim, out_features=embed_dim, bias=bias
+        )
 
         self.head_dim = embed_dim // num_heads
-        self.scaling = self.head_dim ** -0.5
+        self.scaling = self.head_dim**-0.5
         self.softmax = nn.Softmax(dim=-1)
         self.num_heads = num_heads
         self.embed_dim = embed_dim
@@ -277,7 +279,7 @@ class MultiHeadAttention(nn.Module):
         # QK^T
         # [N, h, P, c] x [N, h, c, P] -> [N, h, P, P]
         attn = torch.matmul(query, key)
-        attn = self.softmax(attn)       # 取每一列,在行上做softmax
+        attn = self.softmax(attn)  # 取每一列,在行上做softmax
         attn = self.attn_dropout(attn)
 
         # weighted sum
@@ -293,9 +295,9 @@ class MultiHeadAttention(nn.Module):
         return out
 
 
-#--------------------#
+# --------------------#
 #   self_attn + mlp
-#--------------------#
+# --------------------#
 class TransformerEncoder(nn.Module):
     """
     This class defines the pre-norm `Transformer encoder <https://arxiv.org/abs/1706.03762>`_
@@ -321,22 +323,16 @@ class TransformerEncoder(nn.Module):
         dropout: Optional[float] = 0.0,
         ffn_dropout: Optional[float] = 0.0,
         *args,
-        **kwargs
+        **kwargs,
     ) -> None:
-
         super().__init__()
 
         # 多头自注意力
         attn_unit = MultiHeadAttention(
-            embed_dim,
-            num_heads,
-            attn_dropout=attn_dropout,
-            bias=True
+            embed_dim, num_heads, attn_dropout=attn_dropout, bias=True
         )
         self.pre_norm_mha = nn.Sequential(
-            nn.LayerNorm(embed_dim),
-            attn_unit,
-            nn.Dropout(p=dropout)
+            nn.LayerNorm(embed_dim), attn_unit, nn.Dropout(p=dropout)
         )
 
         # mlp   [N, P, C] -> [N, P, 2C] -> [N, P, C]
@@ -346,7 +342,7 @@ class TransformerEncoder(nn.Module):
             nn.SiLU(),
             nn.Dropout(p=ffn_dropout),
             nn.Linear(in_features=ffn_latent_dim, out_features=embed_dim, bias=True),
-            nn.Dropout(p=dropout)
+            nn.Dropout(p=dropout),
         )
         self.embed_dim = embed_dim
         self.ffn_dim = ffn_latent_dim
@@ -388,46 +384,50 @@ class MobileViTBlock(nn.Module):
     def __init__(
         self,
         in_channels: int,
-        transformer_dim: int,           # transformer的token长度
-        ffn_dim: int,                   # mlp节点个数
+        transformer_dim: int,  # transformer的token长度
+        ffn_dim: int,  # mlp节点个数
         n_transformer_blocks: int = 2,  # 重复堆叠transformer次数
-        head_dim: int = 32,             # 每个头的维度
+        head_dim: int = 32,  # 每个头的维度
         attn_dropout: float = 0.0,
         dropout: float = 0.0,
         ffn_dropout: float = 0.0,
-        patch_h: int = 8,               # 划分特征图的大小
+        patch_h: int = 8,  # 划分特征图的大小
         patch_w: int = 8,
         conv_ksize: Optional[int] = 3,  # 开始conv的kernel
         *args,
-        **kwargs
+        **kwargs,
     ) -> None:
         super().__init__()
 
-        #-----------------------------#
+        # -----------------------------#
         #   local representation
         #   3x3Conv + 1x1Conv
-        #-----------------------------#
+        # -----------------------------#
         self.local_rep = nn.Sequential()
-        self.local_rep.add_module(name="conv_3x3",
-                                  module=ConvLayer(
-                                    in_channels=in_channels,
-                                    out_channels=in_channels,
-                                    kernel_size=conv_ksize,
-                                    stride=1
-                                ))
-        self.local_rep.add_module(name="conv_1x1",
-                                  module=ConvLayer(
-                                    in_channels=in_channels,
-                                    out_channels=transformer_dim,
-                                    kernel_size=1,
-                                    stride=1,
-                                    use_norm=False,
-                                    use_act=False
-                                ))
+        self.local_rep.add_module(
+            name="conv_3x3",
+            module=ConvLayer(
+                in_channels=in_channels,
+                out_channels=in_channels,
+                kernel_size=conv_ksize,
+                stride=1,
+            ),
+        )
+        self.local_rep.add_module(
+            name="conv_1x1",
+            module=ConvLayer(
+                in_channels=in_channels,
+                out_channels=transformer_dim,
+                kernel_size=1,
+                stride=1,
+                use_norm=False,
+                use_act=False,
+            ),
+        )
 
-        #----------------------------------#
+        # ----------------------------------#
         #   n 次 transformer
-        #----------------------------------#
+        # ----------------------------------#
         assert transformer_dim % head_dim == 0
         num_heads = transformer_dim // head_dim
 
@@ -438,37 +438,37 @@ class MobileViTBlock(nn.Module):
                 num_heads=num_heads,
                 attn_dropout=attn_dropout,
                 dropout=dropout,
-                ffn_dropout=ffn_dropout
+                ffn_dropout=ffn_dropout,
             )
             for _ in range(n_transformer_blocks)
         ]
         global_rep.append(nn.LayerNorm(transformer_dim))
         self.global_rep = nn.Sequential(*global_rep)
 
-        #----------------------------------#
+        # ----------------------------------#
         #   调整transformer的通道
         #   1x1Conv
-        #----------------------------------#
+        # ----------------------------------#
         self.conv_proj = ConvLayer(
             in_channels=transformer_dim,
             out_channels=in_channels,
             kernel_size=1,
-            stride=1
+            stride=1,
         )
-        #----------------------------------#
+        # ----------------------------------#
         #   fusion res+x的输出经过3x3Conv融合
         #   3x3Conv
-        #----------------------------------#
+        # ----------------------------------#
         self.fusion = ConvLayer(
             in_channels=2 * in_channels,
             out_channels=in_channels,
             kernel_size=conv_ksize,
-            stride=1
+            stride=1,
         )
 
         self.patch_h = patch_h  # 2
         self.patch_w = patch_w  # 2
-        self.patch_area = self.patch_w * self.patch_h   # 4
+        self.patch_area = self.patch_w * self.patch_h  # 4
 
         self.cnn_in_dim = in_channels
         self.cnn_out_dim = transformer_dim
@@ -490,28 +490,32 @@ class MobileViTBlock(nn.Module):
         Returns:
             Tuple[Tensor, Dict]: [4B, H*W/4, C], info
         """
-        patch_w, patch_h = self.patch_w, self.patch_h       # 2 2
-        patch_area = patch_w * patch_h                      # 4
-        batch_size, in_channels, orig_h, orig_w = x.shape   # [b, 64, 28, 28]
+        patch_w, patch_h = self.patch_w, self.patch_h  # 2 2
+        patch_area = patch_w * patch_h  # 4
+        batch_size, in_channels, orig_h, orig_w = x.shape  # [b, 64, 28, 28]
 
         # 保证特征图宽高可以被patch整除
-        new_h = int(math.ceil(orig_h / self.patch_h) * self.patch_h) # 28 / 2 * 2 = 28
-        new_w = int(math.ceil(orig_w / self.patch_w) * self.patch_w) # 28 / 2 * 2 = 28
+        new_h = int(math.ceil(orig_h / self.patch_h) * self.patch_h)  # 28 / 2 * 2 = 28
+        new_w = int(math.ceil(orig_w / self.patch_w) * self.patch_w)  # 28 / 2 * 2 = 28
         # 如果不被整除就采样到制定分辨率
         interpolate = False
         if new_w != orig_w or new_h != orig_h:
             # Note: Padding can be done, but then it needs to be handled in attention function.
-            x = F.interpolate(x, size=(new_h, new_w), mode="bilinear", align_corners=False)
+            x = F.interpolate(
+                x, size=(new_h, new_w), mode="bilinear", align_corners=False
+            )
             interpolate = True
 
         # number of patches along width and height
         # 宽度和高度各划分出多个patch
-        num_patch_w = new_w // patch_w          # n_w=14
-        num_patch_h = new_h // patch_h          # n_h=14
-        num_patches = num_patch_h * num_patch_w # N=14*14
+        num_patch_w = new_w // patch_w  # n_w=14
+        num_patch_h = new_h // patch_h  # n_h=14
+        num_patches = num_patch_h * num_patch_w  # N=14*14
 
         # [B, C, H, W] -> [B * C, n_h, h, n_w, w]                                   [B, 64, 28, 28] -> [B*64, 14, 2, 14, 2]
-        x = x.reshape(batch_size * in_channels, num_patch_h, patch_h, num_patch_w, patch_w)
+        x = x.reshape(
+            batch_size * in_channels, num_patch_h, patch_h, num_patch_w, patch_w
+        )
         # [B * C, n_h, h, n_w, w] -> [B * C, n_h, n_w, h, w]                        [B*64, 14, 2, 14, 2] -> [B*64, 14, 14, 2, 2]
         x = x.transpose(2, 3)
         # [B * C, n_h, n_w, h, w] -> [B, C, N, P] where P = h * w and N = n_h * n_w [B*64, 14, 14, 2, 2] -> [b, 64, 14*14, 2*2]
@@ -542,27 +546,29 @@ class MobileViTBlock(nn.Module):
         Returns:
             Tensor: [B, C, H, W]
         """
-        n_dim = x.dim() # 3
-        assert n_dim == 3, "Tensor should be of shape BPxNxC. Got: {}".format(
-            x.shape
-        )
+        n_dim = x.dim()  # 3
+        assert n_dim == 3, "Tensor should be of shape BPxNxC. Got: {}".format(x.shape)
         # [B * P, N, C] --> [B, P, N, C]                       [B*4, 196, 64] -> [B, 4, 196, 64]
         x = x.contiguous().view(
             info_dict["batch_size"], self.patch_area, info_dict["total_patches"], -1
         )
 
         batch_size, pixels, num_patches, channels = x.size()  # [B, 4, 196, 64]
-        num_patch_h = info_dict["num_patches_h"]              # 14
-        num_patch_w = info_dict["num_patches_w"]              # 14
+        num_patch_h = info_dict["num_patches_h"]  # 14
+        num_patch_w = info_dict["num_patches_w"]  # 14
 
         # [B, P, N, C] -> [B, C, N, P]                          [B, 4, 196, 64] -> [B, 64, 196, 4]
         x = x.transpose(1, 3)
         # [B, C, N, P] -> [B*C, n_h, n_w, h, w]                 [B, 64, 196, 4] -> [B*64, 14, 14, 2, 2]
-        x = x.reshape(batch_size * channels, num_patch_h, num_patch_w, self.patch_h, self.patch_w)
+        x = x.reshape(
+            batch_size * channels, num_patch_h, num_patch_w, self.patch_h, self.patch_w
+        )
         # [B*C, n_h, n_w, h, w] -> [B*C, n_h, h, n_w, w][B*64, 14, 14, 2, 2] -> [B*64, 14, 2, 14, 2]
         x = x.transpose(2, 3)
         # [B*C, n_h, h, n_w, w] -> [B, C, H, W]                 [B*64, 14, 2, 14, 2] -> [B, 64, 14*2, 14*2]
-        x = x.reshape(batch_size, channels, num_patch_h * self.patch_h, num_patch_w * self.patch_w)
+        x = x.reshape(
+            batch_size, channels, num_patch_h * self.patch_h, num_patch_w * self.patch_w
+        )
 
         # 如果经过采样,则还原大小
         if info_dict["interpolate"]:
@@ -578,7 +584,7 @@ class MobileViTBlock(nn.Module):
         res = x
 
         # local representation  3x3Conv + 1x1Conv
-        fm = self.local_rep(x)                        # [B, 48, 28, 28] -> [B, 64, 28, 28]
+        fm = self.local_rep(x)  # [B, 48, 28, 28] -> [B, 64, 28, 28]
 
         # convert feature map to patches
         # [B, C, H, W] -> [4B, H*W/4, C]                [B, 64, 28, 28] -> [4B, 196, 64]
@@ -592,10 +598,12 @@ class MobileViTBlock(nn.Module):
         fm = self.folding(x=patches, info_dict=info_dict)
 
         # 调整transformer的通道   1x1Conv
-        fm = self.conv_proj(fm)                       # [B, 64, 28, 28] -> [B, 48, 28, 28]
+        fm = self.conv_proj(fm)  # [B, 64, 28, 28] -> [B, 48, 28, 28]
 
         # fusion res+x的输出经过3x3Conv融合
-        fm = self.fusion(torch.cat((res, fm), dim=1)) # [B, 48, 28, 28] cat [B, 48, 28, 28] -> [B, 48, 28, 28]
+        fm = self.fusion(
+            torch.cat((res, fm), dim=1)
+        )  # [B, 48, 28, 28] cat [B, 48, 28, 28] -> [B, 48, 28, 28]
         return fm
 
 
@@ -603,6 +611,7 @@ class MobileViT(nn.Module):
     """
     This class implements the `MobileViT architecture <https://arxiv.org/abs/2110.02178?context=cs.LG>`_
     """
+
     def __init__(self, model_cfg: Dict, num_classes: int = 1000):
         super().__init__()
 
@@ -614,25 +623,33 @@ class MobileViT(nn.Module):
             in_channels=image_channels,
             out_channels=out_channels,
             kernel_size=3,
-            stride=2
+            stride=2,
         )
 
         # [B, 16, 112, 112]-> [B, 16, 112, 112]
-        self.layer_1, out_channels = self._make_layer(input_channel=out_channels, cfg=model_cfg["layer1"])
+        self.layer_1, out_channels = self._make_layer(
+            input_channel=out_channels, cfg=model_cfg["layer1"]
+        )
         # [B, 16, 112, 112]-> [B, 24, 56, 56]
-        self.layer_2, out_channels = self._make_layer(input_channel=out_channels, cfg=model_cfg["layer2"])
+        self.layer_2, out_channels = self._make_layer(
+            input_channel=out_channels, cfg=model_cfg["layer2"]
+        )
         # [B, 24, 56, 56] -> [B, 48, 28, 28]
-        self.layer_3, out_channels = self._make_layer(input_channel=out_channels, cfg=model_cfg["layer3"])
+        self.layer_3, out_channels = self._make_layer(
+            input_channel=out_channels, cfg=model_cfg["layer3"]
+        )
         # [B, 48, 28, 28] -> [B, 64, 14, 14]
-        self.layer_4, out_channels = self._make_layer(input_channel=out_channels, cfg=model_cfg["layer4"])
+        self.layer_4, out_channels = self._make_layer(
+            input_channel=out_channels, cfg=model_cfg["layer4"]
+        )
         # [B, 64, 14, 14] -> [B, 80,  7,  7]
-        self.layer_5, out_channels = self._make_layer(input_channel=out_channels, cfg=model_cfg["layer5"])
+        self.layer_5, out_channels = self._make_layer(
+            input_channel=out_channels, cfg=model_cfg["layer5"]
+        )
         # [B, 80,  7,  7] -> [B, 320, 7,  7] 最终的1x1Conv增加通道,和MobileNet类似
         exp_channels = min(model_cfg["last_layer_exp_factor"] * out_channels, 960)
         self.conv_1x1_exp = ConvLayer(
-            in_channels=out_channels,
-            out_channels=exp_channels,
-            kernel_size=1
+            in_channels=out_channels, out_channels=exp_channels, kernel_size=1
         )
 
         # [B, 320, 7,  7] -> [B, num_classes]
@@ -640,8 +657,13 @@ class MobileViT(nn.Module):
         self.classifier.add_module(name="global_pool", module=nn.AdaptiveAvgPool2d(1))
         self.classifier.add_module(name="flatten", module=nn.Flatten())
         if 0.0 < model_cfg["cls_dropout"] < 1.0:
-            self.classifier.add_module(name="dropout", module=nn.Dropout(p=model_cfg["cls_dropout"]))
-        self.classifier.add_module(name="fc", module=nn.Linear(in_features=exp_channels, out_features=num_classes))
+            self.classifier.add_module(
+                name="dropout", module=nn.Dropout(p=model_cfg["cls_dropout"])
+            )
+        self.classifier.add_module(
+            name="fc",
+            module=nn.Linear(in_features=exp_channels, out_features=num_classes),
+        )
 
         # weight init
         self.apply(self.init_parameters)
@@ -655,7 +677,9 @@ class MobileViT(nn.Module):
             return self._make_mobilenet_layer(input_channel=input_channel, cfg=cfg)
 
     @staticmethod
-    def _make_mobilenet_layer(input_channel: int, cfg: Dict) -> Tuple[nn.Sequential, int]:
+    def _make_mobilenet_layer(
+        input_channel: int, cfg: Dict
+    ) -> Tuple[nn.Sequential, int]:
         output_channels = cfg.get("out_channels")
         num_blocks = cfg.get("num_blocks", 2)
         expand_ratio = cfg.get("expand_ratio", 4)
@@ -669,7 +693,7 @@ class MobileViT(nn.Module):
                 in_channels=input_channel,
                 out_channels=output_channels,
                 stride=stride,
-                expand_ratio=expand_ratio
+                expand_ratio=expand_ratio,
             )
             block.append(layer)
             input_channel = output_channels
@@ -688,7 +712,7 @@ class MobileViT(nn.Module):
                 in_channels=input_channel,
                 out_channels=cfg.get("out_channels"),
                 stride=stride,
-                expand_ratio=cfg.get("mv_expand_ratio", 4)
+                expand_ratio=cfg.get("mv_expand_ratio", 4),
             )
 
             block.append(layer)
@@ -700,23 +724,27 @@ class MobileViT(nn.Module):
         head_dim = transformer_dim // num_heads
 
         if transformer_dim % head_dim != 0:
-            raise ValueError("Transformer input dimension should be divisible by head dimension. "
-                             "Got {} and {}.".format(transformer_dim, head_dim))
+            raise ValueError(
+                "Transformer input dimension should be divisible by head dimension. "
+                "Got {} and {}.".format(transformer_dim, head_dim)
+            )
 
         # 构建mobilevit block
-        block.append(MobileViTBlock(
-            in_channels=input_channel,
-            transformer_dim=transformer_dim,
-            ffn_dim=ffn_dim,
-            n_transformer_blocks=cfg.get("transformer_blocks", 1),
-            patch_h=cfg.get("patch_h", 2),
-            patch_w=cfg.get("patch_w", 2),
-            dropout=cfg.get("dropout", 0.1),
-            ffn_dropout=cfg.get("ffn_dropout", 0.0),
-            attn_dropout=cfg.get("attn_dropout", 0.1),
-            head_dim=head_dim,
-            conv_ksize=3
-        ))
+        block.append(
+            MobileViTBlock(
+                in_channels=input_channel,
+                transformer_dim=transformer_dim,
+                ffn_dim=ffn_dim,
+                n_transformer_blocks=cfg.get("transformer_blocks", 1),
+                patch_h=cfg.get("patch_h", 2),
+                patch_w=cfg.get("patch_w", 2),
+                dropout=cfg.get("dropout", 0.1),
+                ffn_dropout=cfg.get("ffn_dropout", 0.0),
+                attn_dropout=cfg.get("attn_dropout", 0.1),
+                head_dim=head_dim,
+                conv_ksize=3,
+            )
+        )
 
         return nn.Sequential(*block), input_channel
 
@@ -741,15 +769,15 @@ class MobileViT(nn.Module):
             pass
 
     def forward(self, x: Tensor) -> Tensor:
-        x = self.conv_1(x)          # [B, 3, 224, 224] -> [B, 16, 112, 112]
-        x = self.layer_1(x)         # [B, 16, 112, 112]-> [B, 16, 112, 112]
-        x = self.layer_2(x)         # [B, 16, 112, 112]-> [B, 24, 56, 56]
+        x = self.conv_1(x)  # [B, 3, 224, 224] -> [B, 16, 112, 112]
+        x = self.layer_1(x)  # [B, 16, 112, 112]-> [B, 16, 112, 112]
+        x = self.layer_2(x)  # [B, 16, 112, 112]-> [B, 24, 56, 56]
 
-        x = self.layer_3(x)         # [B, 24, 56, 56] -> [B, 48, 28, 28]
-        x = self.layer_4(x)         # [B, 48, 28, 28] -> [B, 64, 14, 14]
-        x = self.layer_5(x)         # [B, 64, 14, 14] -> [B, 80,  7,  7]
-        x = self.conv_1x1_exp(x)    # [B, 80,  7,  7] -> [B, 320, 7,  7]
-        x = self.classifier(x)      # [B, 320, 7,  7] -> [B, num_classes]
+        x = self.layer_3(x)  # [B, 24, 56, 56] -> [B, 48, 28, 28]
+        x = self.layer_4(x)  # [B, 48, 28, 28] -> [B, 64, 14, 14]
+        x = self.layer_5(x)  # [B, 64, 14, 14] -> [B, 80,  7,  7]
+        x = self.conv_1x1_exp(x)  # [B, 80,  7,  7] -> [B, 320, 7,  7]
+        x = self.classifier(x)  # [B, 320, 7,  7] -> [B, num_classes]
         return x
 
 
@@ -808,7 +836,7 @@ def get_config(mode: str = "xxs") -> dict:
                 "block_type": "mobilevit",
             },
             "last_layer_exp_factor": 4,
-            "cls_dropout": 0.1
+            "cls_dropout": 0.1,
         }
     elif mode == "x_small":
         mv2_exp_mult = 4
@@ -864,7 +892,7 @@ def get_config(mode: str = "xxs") -> dict:
                 "block_type": "mobilevit",
             },
             "last_layer_exp_factor": 4,
-            "cls_dropout": 0.1
+            "cls_dropout": 0.1,
         }
     elif mode == "small":
         mv2_exp_mult = 4
@@ -920,7 +948,7 @@ def get_config(mode: str = "xxs") -> dict:
                 "block_type": "mobilevit",
             },
             "last_layer_exp_factor": 4,
-            "cls_dropout": 0.1
+            "cls_dropout": 0.1,
         }
     else:
         raise NotImplementedError
@@ -932,9 +960,9 @@ def get_config(mode: str = "xxs") -> dict:
 
 
 model_urls = {
-    'xx_small': 'https://docs-assets.developer.apple.com/ml-research/models/cvnets/classification/mobilevit_xxs.pt',
-    'x_small' : 'https://docs-assets.developer.apple.com/ml-research/models/cvnets/classification/mobilevit_xs.pt',
-    'small'   : 'https://docs-assets.developer.apple.com/ml-research/models/cvnets/classification/mobilevit_s.pt',
+    "xx_small": "https://docs-assets.developer.apple.com/ml-research/models/cvnets/classification/mobilevit_xxs.pt",
+    "x_small": "https://docs-assets.developer.apple.com/ml-research/models/cvnets/classification/mobilevit_xs.pt",
+    "small": "https://docs-assets.developer.apple.com/ml-research/models/cvnets/classification/mobilevit_s.pt",
 }
 
 
@@ -943,29 +971,33 @@ def _create_mobilevit(variant, pretrained=False, num_classes=1000):
     model = MobileViT(config, num_classes=num_classes)
     if pretrained:
         state_dict_url = model_urls[variant]
-        assert state_dict_url != '', 'There is no pretrained weight for this model!'
+        assert state_dict_url != "", "There is no pretrained weight for this model!"
         state_dict = load_state_dict_from_url(state_dict_url, progress=True)
         model.load_state_dict(state_dict)
     return model
 
 
 def mobile_vit_xx_small(pretrained=False, num_classes: int = 1000):
-    m = _create_mobilevit('xx_small', pretrained, num_classes)
+    m = _create_mobilevit("xx_small", pretrained, num_classes)
     return m
 
 
 def mobile_vit_x_small(pretrained=False, num_classes: int = 1000):
-    m = _create_mobilevit('x_small', pretrained, num_classes)
+    m = _create_mobilevit("x_small", pretrained, num_classes)
     return m
 
 
 def mobile_vit_small(pretrained=False, num_classes: int = 1000):
-    m = _create_mobilevit('small', pretrained, num_classes)
+    m = _create_mobilevit("small", pretrained, num_classes)
     return m
 
 
 if __name__ == "__main__":
-    device = "cuda:0" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+    device = (
+        "cuda:0"
+        if torch.cuda.is_available()
+        else ("mps" if torch.backends.mps.is_available() else "cpu")
+    )
 
     x = torch.ones(1, 3, 256, 256).to(device)
     model = mobile_vit_xx_small(pretrained=False).to(device)
@@ -973,4 +1005,4 @@ if __name__ == "__main__":
     model.eval()
     with torch.inference_mode():
         y = model(x)
-    print(y.size()) # [1, 1000]
+    print(y.size())  # [1, 1000]

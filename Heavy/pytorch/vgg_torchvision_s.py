@@ -1,10 +1,9 @@
-'''
+"""
 vgg11 13 16 19  16最常见
 数据量太大,建议使用迁移学习
 
 预训练模型和官网的有些不同
-'''
-
+"""
 
 import torch
 import torch.nn as nn
@@ -13,10 +12,10 @@ from torch.hub import load_state_dict_from_url
 
 # official pretrain weights
 model_urls = {
-    'vgg11': 'https://download.pytorch.org/models/vgg11-8a719046.pth',
-    'vgg13': 'https://download.pytorch.org/models/vgg13-19584684.pth',
-    'vgg16': 'https://download.pytorch.org/models/vgg16-397923af.pth',
-    'vgg19': 'https://download.pytorch.org/models/vgg19-dcbb9e9d.pth'
+    "vgg11": "https://download.pytorch.org/models/vgg11-8a719046.pth",
+    "vgg13": "https://download.pytorch.org/models/vgg13-19584684.pth",
+    "vgg16": "https://download.pytorch.org/models/vgg16-397923af.pth",
+    "vgg19": "https://download.pytorch.org/models/vgg19-dcbb9e9d.pth",
 }
 
 
@@ -25,13 +24,13 @@ class VGG(nn.Module):
         super().__init__()
         self.features = features
         self.classifier = nn.Sequential(
-            nn.Linear(512*7*7, 4096),
+            nn.Linear(512 * 7 * 7, 4096),
             nn.ReLU(True),
-            nn.Dropout(p=0.5),          # Dropout减少过拟合
+            nn.Dropout(p=0.5),  # Dropout减少过拟合
             nn.Linear(4096, 4096),
             nn.ReLU(True),
-            nn.Dropout(p=0.5),          # Dropout减少过拟合
-            nn.Linear(4096, num_classes)
+            nn.Dropout(p=0.5),  # Dropout减少过拟合
+            nn.Linear(4096, num_classes),
         )
         if init_weights:
             self._initialize_weights()
@@ -46,9 +45,9 @@ class VGG(nn.Module):
         return x
 
     def _initialize_weights(self):
-        '''
+        """
         初始化权重
-        '''
+        """
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 # 卷积初始化
@@ -69,7 +68,7 @@ def make_features(cfg: list):
     layers = []
     in_channels = 3
     for v in cfg:
-    # 取出out_channels
+        # 取出out_channels
 
         if v == "M":
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
@@ -83,15 +82,58 @@ def make_features(cfg: list):
 
 cfgs = {
     # 数字代表卷积核个数(就是out_channels, M代表池化层
-    'vgg11': [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
-    'vgg13': [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
-    'vgg16': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M'],
-    'vgg19': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512, 'M'],
+    "vgg11": [64, "M", 128, "M", 256, 256, "M", 512, 512, "M", 512, 512, "M"],
+    "vgg13": [64, 64, "M", 128, 128, "M", 256, 256, "M", 512, 512, "M", 512, 512, "M"],
+    "vgg16": [
+        64,
+        64,
+        "M",
+        128,
+        128,
+        "M",
+        256,
+        256,
+        256,
+        "M",
+        512,
+        512,
+        512,
+        "M",
+        512,
+        512,
+        512,
+        "M",
+    ],
+    "vgg19": [
+        64,
+        64,
+        "M",
+        128,
+        128,
+        "M",
+        256,
+        256,
+        256,
+        256,
+        "M",
+        512,
+        512,
+        512,
+        512,
+        "M",
+        512,
+        512,
+        512,
+        512,
+        "M",
+    ],
 }
 
 
 def vgg(model_name="vgg16", pretrained=False, **kwargs):
-    assert model_name in cfgs, "Warning: model number {} not in cfgs dict!".format(model_name)
+    assert model_name in cfgs, "Warning: model number {} not in cfgs dict!".format(
+        model_name
+    )
     cfg = cfgs[model_name]
     model = VGG(make_features(cfg), **kwargs)
     if pretrained:
@@ -101,7 +143,11 @@ def vgg(model_name="vgg16", pretrained=False, **kwargs):
 
 
 if __name__ == "__main__":
-    device = "cuda:0" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+    device = (
+        "cuda:0"
+        if torch.cuda.is_available()
+        else ("mps" if torch.backends.mps.is_available() else "cpu")
+    )
 
     x = torch.ones(1, 3, 224, 224).to(device)
     model = vgg(model_name="vgg16", pretrained=False)
@@ -120,4 +166,4 @@ if __name__ == "__main__":
     model.eval()
     with torch.inference_mode():
         y = model(x)
-    print(y.size()) # [1, 5]
+    print(y.size())  # [1, 5]

@@ -26,13 +26,13 @@ def main():
     img = np.array(img).astype(np.float32)
 
     # preprocess
-    img = (img / 255. - 0.5) / 0.5
+    img = (img / 255.0 - 0.5) / 0.5
 
     # Add the image to a batch where it's the only member.
-    img = (np.expand_dims(img, 0))
+    img = np.expand_dims(img, 0)
 
     # read class_indict
-    json_path = './class_indices.json'
+    json_path = "./class_indices.json"
     assert os.path.exists(json_path), "file: '{}' dose not exist.".format(json_path)
 
     json_file = open(json_path, "r")
@@ -42,20 +42,21 @@ def main():
     model = create_model(num_classes=num_classes, has_logits=False)
     model.build([1, 224, 224, 3])
 
-    weights_path = './save_weights/model.ckpt'
-    assert len(glob.glob(weights_path+"*")), "cannot find {}".format(weights_path)
+    weights_path = "./save_weights/model.ckpt"
+    assert len(glob.glob(weights_path + "*")), "cannot find {}".format(weights_path)
     model.load_weights(weights_path)
 
     result = np.squeeze(model.predict(img, batch_size=1))
     result = tf.keras.layers.Softmax()(result)
     predict_class = np.argmax(result)
 
-    print_res = "class: {}   prob: {:.3}".format(class_indict[str(predict_class)],
-                                                 result[predict_class])
+    print_res = "class: {}   prob: {:.3}".format(
+        class_indict[str(predict_class)], result[predict_class]
+    )
     plt.title(print_res)
     print(print_res)
     plt.show()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -5,7 +5,9 @@ def InceptionV1(im_height=224, im_width=224, class_num=1000, aux_logits=False):
     # tensorflow中的tensor通道排序是NHWC
     input_image = layers.Input(shape=(im_height, im_width, 3), dtype="float32")
     # (None, 224, 224, 3)
-    x = layers.Conv2D(64, kernel_size=7, strides=2, padding="SAME", use_bias=False, name="conv1/conv")(input_image)
+    x = layers.Conv2D(
+        64, kernel_size=7, strides=2, padding="SAME", use_bias=False, name="conv1/conv"
+    )(input_image)
     x = layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name="conv1/bn")(x)
     x = layers.ReLU()(x)
     # (None, 112, 112, 64)
@@ -15,7 +17,9 @@ def InceptionV1(im_height=224, im_width=224, class_num=1000, aux_logits=False):
     x = layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name="conv2/bn")(x)
     x = layers.ReLU()(x)
     # (None, 56, 56, 64)
-    x = layers.Conv2D(192, kernel_size=3, padding="SAME", use_bias=False, name="conv3/conv")(x)
+    x = layers.Conv2D(
+        192, kernel_size=3, padding="SAME", use_bias=False, name="conv3/conv"
+    )(x)
     x = layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name="conv3/bn")(x)
     x = layers.ReLU()(x)
     # (None, 56, 56, 192)
@@ -72,32 +76,54 @@ def InceptionV1(im_height=224, im_width=224, class_num=1000, aux_logits=False):
 class Inception(layers.Layer):
     def __init__(self, ch1x1, ch3x3red, ch3x3, ch5x5red, ch5x5, pool_proj, **kwargs):
         super(Inception, self).__init__(**kwargs)
-        self.branch1 = Sequential([
-            layers.Conv2D(ch1x1, kernel_size=1, use_bias=False, name="conv"),
-            layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name="bn"),
-            layers.ReLU()], name="branch1")
+        self.branch1 = Sequential(
+            [
+                layers.Conv2D(ch1x1, kernel_size=1, use_bias=False, name="conv"),
+                layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name="bn"),
+                layers.ReLU(),
+            ],
+            name="branch1",
+        )
 
-        self.branch2 = Sequential([
-            layers.Conv2D(ch3x3red, kernel_size=1, use_bias=False, name="0/conv"),
-            layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name="0/bn"),
-            layers.ReLU(),
-            layers.Conv2D(ch3x3, kernel_size=3, padding="SAME", use_bias=False, name="1/conv"),
-            layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name="1/bn"),
-            layers.ReLU()], name="branch2")      # output_size= input_size
+        self.branch2 = Sequential(
+            [
+                layers.Conv2D(ch3x3red, kernel_size=1, use_bias=False, name="0/conv"),
+                layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name="0/bn"),
+                layers.ReLU(),
+                layers.Conv2D(
+                    ch3x3, kernel_size=3, padding="SAME", use_bias=False, name="1/conv"
+                ),
+                layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name="1/bn"),
+                layers.ReLU(),
+            ],
+            name="branch2",
+        )  # output_size= input_size
 
-        self.branch3 = Sequential([
-            layers.Conv2D(ch5x5red, kernel_size=1, use_bias=False, name="0/conv"),
-            layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name="0/bn"),
-            layers.ReLU(),
-            layers.Conv2D(ch5x5, kernel_size=3, padding="SAME", use_bias=False, name="1/conv"),
-            layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name="1/bn"),
-            layers.ReLU()], name="branch3")      # output_size= input_size
+        self.branch3 = Sequential(
+            [
+                layers.Conv2D(ch5x5red, kernel_size=1, use_bias=False, name="0/conv"),
+                layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name="0/bn"),
+                layers.ReLU(),
+                layers.Conv2D(
+                    ch5x5, kernel_size=3, padding="SAME", use_bias=False, name="1/conv"
+                ),
+                layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name="1/bn"),
+                layers.ReLU(),
+            ],
+            name="branch3",
+        )  # output_size= input_size
 
-        self.branch4 = Sequential([
-            layers.MaxPool2D(pool_size=3, strides=1, padding="SAME"),  # caution: default strides==pool_size
-            layers.Conv2D(pool_proj, kernel_size=1, use_bias=False, name="1/conv"),
-            layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name="1/bn"),
-            layers.ReLU()], name="branch4")                  # output_size= input_size
+        self.branch4 = Sequential(
+            [
+                layers.MaxPool2D(
+                    pool_size=3, strides=1, padding="SAME"
+                ),  # caution: default strides==pool_size
+                layers.Conv2D(pool_proj, kernel_size=1, use_bias=False, name="1/conv"),
+                layers.BatchNormalization(momentum=0.9, epsilon=1e-5, name="1/bn"),
+                layers.ReLU(),
+            ],
+            name="branch4",
+        )  # output_size= input_size
 
     def call(self, inputs, **kwargs):
         branch1 = self.branch1(inputs)

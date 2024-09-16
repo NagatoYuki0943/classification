@@ -1,4 +1,4 @@
-""" MLP module w/ dropout and configurable activation layer
+"""MLP module w/ dropout and configurable activation layer
 
 https://github.com/huggingface/pytorch-image-models/blob/main/timm/layers/mlp.py
 """
@@ -11,22 +11,22 @@ from timm.layers import to_2tuple
 from timm.layers import Mlp, GluMlp, SwiGLU, GatedMlp, ConvMlp
 
 
-#-----------------------------------------#
+# -----------------------------------------#
 #   [..., C] -> [..., n*C] -> [..., C]
-#-----------------------------------------#
+# -----------------------------------------#
 class Mlp(nn.Module):
-    """ MLP as used in Vision Transformer, MLP-Mixer and related networks
-    """
+    """MLP as used in Vision Transformer, MLP-Mixer and related networks"""
+
     def __init__(
-            self,
-            in_features,
-            hidden_features=None,
-            out_features=None,
-            act_layer=nn.GELU,
-            norm_layer=None,
-            bias=True,
-            drop=0.,
-            use_conv=False,
+        self,
+        in_features,
+        hidden_features=None,
+        out_features=None,
+        act_layer=nn.GELU,
+        norm_layer=None,
+        bias=True,
+        drop=0.0,
+        use_conv=False,
     ):
         super().__init__()
         out_features = out_features or in_features
@@ -38,21 +38,23 @@ class Mlp(nn.Module):
         self.fc1 = linear_layer(in_features, hidden_features, bias=bias[0])
         self.act = act_layer()
         self.drop1 = nn.Dropout(drop_probs[0])
-        self.norm = norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
+        self.norm = (
+            norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
+        )
         self.fc2 = linear_layer(hidden_features, out_features, bias=bias[1])
         self.drop2 = nn.Dropout(drop_probs[1])
 
-    def forward(self, x):   # mix channel
-        x = self.fc1(x)     # [B, N, C] -> [B, N, n*C]
+    def forward(self, x):  # mix channel
+        x = self.fc1(x)  # [B, N, C] -> [B, N, n*C]
         x = self.act(x)
         x = self.drop1(x)
         x = self.norm(x)
-        x = self.fc2(x)     # [B, N, n*C] -> [B, N, C]
+        x = self.fc2(x)  # [B, N, n*C] -> [B, N, C]
         x = self.drop2(x)
         return x
 
 
-#-----------------------#
+# -----------------------#
 #          in
 #           │
 #           │
@@ -72,22 +74,23 @@ class Mlp(nn.Module):
 #           │
 #           │
 #          out
-#-----------------------#
+# -----------------------#
 class GluMlp(nn.Module):
-    """ MLP w/ GLU style gating
+    """MLP w/ GLU style gating
     See: https://arxiv.org/abs/1612.08083, https://arxiv.org/abs/2002.05202
     """
+
     def __init__(
-            self,
-            in_features,
-            hidden_features=None,
-            out_features=None,
-            act_layer=nn.Sigmoid,
-            norm_layer=None,
-            bias=True,
-            drop=0.,
-            use_conv=False,
-            gate_last=True,
+        self,
+        in_features,
+        hidden_features=None,
+        out_features=None,
+        act_layer=nn.Sigmoid,
+        norm_layer=None,
+        bias=True,
+        drop=0.0,
+        use_conv=False,
+        gate_last=True,
     ):
         super().__init__()
         out_features = out_features or in_features
@@ -102,7 +105,11 @@ class GluMlp(nn.Module):
         self.fc1 = linear_layer(in_features, hidden_features, bias=bias[0])
         self.act = act_layer()
         self.drop1 = nn.Dropout(drop_probs[0])
-        self.norm = norm_layer(hidden_features // 2) if norm_layer is not None else nn.Identity()
+        self.norm = (
+            norm_layer(hidden_features // 2)
+            if norm_layer is not None
+            else nn.Identity()
+        )
         self.fc2 = linear_layer(hidden_features // 2, out_features, bias=bias[1])
         self.drop2 = nn.Dropout(drop_probs[1])
 
@@ -113,18 +120,20 @@ class GluMlp(nn.Module):
         nn.init.normal_(self.fc1.weight[fc1_mid:], std=1e-6)
 
     def forward(self, x):
-        x = self.fc1(x)                                                 # [B, N, C] -> [B, N, n*C]
-        x1, x2 = x.chunk(2, dim=self.chunk_dim)                         # [B, N, n*C] -> 2 * [B, N, n*C/2]
+        x = self.fc1(x)  # [B, N, C] -> [B, N, n*C]
+        x1, x2 = x.chunk(2, dim=self.chunk_dim)  # [B, N, n*C] -> 2 * [B, N, n*C/2]
         # 前后2部分哪个部分经过激活函数的区别
-        x = x1 * self.act(x2) if self.gate_last else self.act(x1) * x2  # [B, N, n*C/2] * act([B, N, n*C/2]) = [B, N, n*C/2]
+        x = (
+            x1 * self.act(x2) if self.gate_last else self.act(x1) * x2
+        )  # [B, N, n*C/2] * act([B, N, n*C/2]) = [B, N, n*C/2]
         x = self.drop1(x)
         x = self.norm(x)
-        x = self.fc2(x)                                                 # [B, N, n*C/2] -> [B, N, C]
+        x = self.fc2(x)  # [B, N, n*C/2] -> [B, N, C]
         x = self.drop2(x)
         return x
 
 
-#-----------------------#
+# -----------------------#
 #          in
 #           │
 #           │
@@ -146,21 +155,22 @@ class GluMlp(nn.Module):
 #           │
 #           │
 #          out
-#-----------------------#
+# -----------------------#
 class SwiGLU(nn.Module):
-    """ SwiGLU
+    """SwiGLU
     NOTE: GluMLP above can implement SwiGLU, but this impl has split fc1 and
     better matches some other common impl which makes mapping checkpoints simpler.
     """
+
     def __init__(
-            self,
-            in_features,
-            hidden_features=None,
-            out_features=None,
-            act_layer=nn.SiLU,
-            norm_layer=None,
-            bias=True,
-            drop=0.,
+        self,
+        in_features,
+        hidden_features=None,
+        out_features=None,
+        act_layer=nn.SiLU,
+        norm_layer=None,
+        bias=True,
+        drop=0.0,
     ):
         super().__init__()
         out_features = out_features or in_features
@@ -172,7 +182,9 @@ class SwiGLU(nn.Module):
         self.fc1_x = nn.Linear(in_features, hidden_features, bias=bias[0])
         self.act = act_layer()
         self.drop1 = nn.Dropout(drop_probs[0])
-        self.norm = norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
+        self.norm = (
+            norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
+        )
         self.fc2 = nn.Linear(hidden_features, out_features, bias=bias[1])
         self.drop2 = nn.Dropout(drop_probs[1])
 
@@ -182,17 +194,17 @@ class SwiGLU(nn.Module):
         nn.init.normal_(self.fc1_g.weight, std=1e-6)
 
     def forward(self, x):
-        x_gate = self.fc1_g(x)      # [B, N, C] -> [B, N, n*C]
-        x = self.fc1_x(x)           # [B, N, C] -> [B, N, n*C]
-        x = self.act(x_gate) * x    # act([B, N, n*C]) * [B, N, n*C] = [B, N, n*C]
+        x_gate = self.fc1_g(x)  # [B, N, C] -> [B, N, n*C]
+        x = self.fc1_x(x)  # [B, N, C] -> [B, N, n*C]
+        x = self.act(x_gate) * x  # act([B, N, n*C]) * [B, N, n*C] = [B, N, n*C]
         x = self.drop1(x)
         x = self.norm(x)
-        x = self.fc2(x)             # [B, N, n*C] -> [B, N, C]
+        x = self.fc2(x)  # [B, N, n*C] -> [B, N, C]
         x = self.drop2(x)
         return x
 
 
-#-------------------------------#
+# -------------------------------#
 #   GatedMlp使用的gate_layer
 #            in
 #             │
@@ -211,12 +223,13 @@ class SwiGLU(nn.Module):
 #             │
 #             │
 #            out
-#-------------------------------#
+# -------------------------------#
 class SpatialGatingUnit(nn.Module):
-    """ Spatial Gating Unit
+    """Spatial Gating Unit
 
     Based on: `Pay Attention to MLPs` - https://arxiv.org/abs/2105.08050
     """
+
     def __init__(self, dim, seq_len, norm_layer=nn.LayerNorm):
         super().__init__()
         gate_dim = dim // 2
@@ -229,13 +242,17 @@ class SpatialGatingUnit(nn.Module):
         nn.init.ones_(self.proj.bias)
 
     def forward(self, x):
-        u, v = x.chunk(2, dim=-1)           # [B, N, C] -> 2 * [B, N, C/2]
+        u, v = x.chunk(2, dim=-1)  # [B, N, C] -> 2 * [B, N, C/2]
         v = self.norm(v)
-        v = self.proj(v.transpose(-1, -2))  # [B, N, C/2] -> [B, C/2, P] -> [B, C/2, P] 对 seq 维度做投影
-        return u * v.transpose(-1, -2)      # [B, N, C/2] * ([B, C/2, P] -> [B, N, C/2]) = [B, N, C/2]  最终通道减半
+        v = self.proj(
+            v.transpose(-1, -2)
+        )  # [B, N, C/2] -> [B, C/2, P] -> [B, C/2, P] 对 seq 维度做投影
+        return u * v.transpose(
+            -1, -2
+        )  # [B, N, C/2] * ([B, C/2, P] -> [B, N, C/2]) = [B, N, C/2]  最终通道减半
 
 
-#-----------------------#
+# -----------------------#
 #          in
 #           │
 #           │
@@ -255,20 +272,20 @@ class SpatialGatingUnit(nn.Module):
 #           │
 #           │
 #          out
-#-----------------------#
+# -----------------------#
 class GatedMlp(nn.Module):
-    """ MLP as used in gMLP
-    """
+    """MLP as used in gMLP"""
+
     def __init__(
-            self,
-            in_features,
-            hidden_features=None,
-            out_features=None,
-            act_layer=nn.GELU,
-            norm_layer=None,
-            gate_layer=None,
-            bias=True,
-            drop=0.,
+        self,
+        in_features,
+        hidden_features=None,
+        out_features=None,
+        act_layer=nn.GELU,
+        norm_layer=None,
+        gate_layer=None,
+        bias=True,
+        drop=0.0,
     ):
         super().__init__()
         out_features = out_features or in_features
@@ -282,48 +299,52 @@ class GatedMlp(nn.Module):
         if gate_layer is not None:
             assert hidden_features % 2 == 0
             self.gate = gate_layer(hidden_features)
-            hidden_features = hidden_features // 2  # FIXME base reduction on gate property?
+            hidden_features = (
+                hidden_features // 2
+            )  # FIXME base reduction on gate property?
         else:
             self.gate = nn.Identity()
-        self.norm = norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
+        self.norm = (
+            norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
+        )
         self.fc2 = nn.Linear(hidden_features, out_features, bias=bias[1])
         self.drop2 = nn.Dropout(drop_probs[1])
 
     def forward(self, x):
-        x = self.fc1(x)     # [B, N, C] -> [B, N, n*C]
+        x = self.fc1(x)  # [B, N, C] -> [B, N, n*C]
         x = self.act(x)
         x = self.drop1(x)
-        x = self.gate(x)    # [B, N, n*C] -> [B, N, n*C/2]   add this 通道减半
+        x = self.gate(x)  # [B, N, n*C] -> [B, N, n*C/2]   add this 通道减半
         x = self.norm(x)
-        x = self.fc2(x)     # [B, N, n*C/2] -> [B, N, C]
+        x = self.fc2(x)  # [B, N, n*C/2] -> [B, N, C]
         x = self.drop2(x)
         return x
 
 
-#-----------------------#
+# -----------------------#
 #   1x1Conv代替全连接层
-#-----------------------#
+# -----------------------#
 class ConvMlp(nn.Module):
-    """ MLP using 1x1 convs that keeps spatial dims
-    """
+    """MLP using 1x1 convs that keeps spatial dims"""
+
     def __init__(
-            self,
-            in_features,
-            hidden_features=None,
-            out_features=None,
-            act_layer=nn.ReLU,
-            norm_layer=None,
-            bias=True,
-            drop=0.,
+        self,
+        in_features,
+        hidden_features=None,
+        out_features=None,
+        act_layer=nn.ReLU,
+        norm_layer=None,
+        bias=True,
+        drop=0.0,
     ):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
         bias = to_2tuple(bias)
 
-        #-------------------------------------#
+        # -------------------------------------#
         #   使用k=1的Conv代替两个全连接层
-        #-------------------------------------#
+        # -------------------------------------#
         self.fc1 = nn.Conv2d(in_features, hidden_features, kernel_size=1, bias=bias[0])
         self.norm = norm_layer(hidden_features) if norm_layer else nn.Identity()
         self.act = act_layer()
@@ -331,28 +352,33 @@ class ConvMlp(nn.Module):
         self.fc2 = nn.Conv2d(hidden_features, out_features, kernel_size=1, bias=bias[1])
 
     def forward(self, x):
-        x = self.fc1(x)     # [B, C, H, W] -> [B, n*C, H, W]
+        x = self.fc1(x)  # [B, C, H, W] -> [B, n*C, H, W]
         x = self.norm(x)
         x = self.act(x)
         x = self.drop(x)
-        x = self.fc2(x)     # [B, n*C, H, W] -> [B, C, H, W]
+        x = self.fc2(x)  # [B, n*C, H, W] -> [B, C, H, W]
         return x
 
 
 if __name__ == "__main__":
     x = torch.ones(1, 256, 64, 64)
-    x_ = x.flatten(2).transpose(1, 2)   # [1, 4096, 256]
+    x_ = x.flatten(2).transpose(1, 2)  # [1, 4096, 256]
 
-    mlp      = Mlp(in_features=256, hidden_features=256 * 4, out_features=256).eval()
-    glumlp   = GluMlp(in_features=256, hidden_features=256 * 4, out_features=256).eval()
-    swiglu   = SwiGLU(in_features=256, hidden_features=256 * 4, out_features=256).eval()
+    mlp = Mlp(in_features=256, hidden_features=256 * 4, out_features=256).eval()
+    glumlp = GluMlp(in_features=256, hidden_features=256 * 4, out_features=256).eval()
+    swiglu = SwiGLU(in_features=256, hidden_features=256 * 4, out_features=256).eval()
     gate_layer = partial(SpatialGatingUnit, seq_len=x_.shape[1])
-    gatedmlp = GatedMlp(in_features=256, hidden_features=256 * 4, out_features=256, gate_layer=gate_layer).eval()
-    convmlp  = ConvMlp(in_features=256, hidden_features=256 * 4, out_features=256).eval()
+    gatedmlp = GatedMlp(
+        in_features=256,
+        hidden_features=256 * 4,
+        out_features=256,
+        gate_layer=gate_layer,
+    ).eval()
+    convmlp = ConvMlp(in_features=256, hidden_features=256 * 4, out_features=256).eval()
 
     with torch.inference_mode():
-        print(mlp(x_).shape)        # [1, 4096, 256]
-        print(glumlp(x_).shape)     # [1, 4096, 256]
-        print(swiglu(x_).shape)     # [1, 4096, 256]
-        print(gatedmlp(x_).shape)   # [1, 4096, 256]
-        print(convmlp(x).shape)     # [1, 256, 64, 64]
+        print(mlp(x_).shape)  # [1, 4096, 256]
+        print(glumlp(x_).shape)  # [1, 4096, 256]
+        print(swiglu(x_).shape)  # [1, 4096, 256]
+        print(gatedmlp(x_).shape)  # [1, 4096, 256]
+        print(convmlp(x).shape)  # [1, 256, 64, 64]

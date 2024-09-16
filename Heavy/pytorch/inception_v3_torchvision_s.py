@@ -1,10 +1,10 @@
-'''
+"""
 直接复制pytorch官方的代码
 
 
 辅助输出的形状和最终输出的形状完全相同,形状都是[batch, num_classes];只在训练时会有,验证时没有
 
-'''
+"""
 
 from collections import namedtuple
 import warnings
@@ -14,11 +14,11 @@ import torch.nn.functional as F
 from torch.hub import load_state_dict_from_url
 from typing import Callable, Any, Optional, Tuple, List
 
-__all__ = ['Inception3', 'inception_v3', 'InceptionOutputs', '_InceptionOutputs']
+__all__ = ["Inception3", "inception_v3", "InceptionOutputs", "_InceptionOutputs"]
 
 
-InceptionOutputs = namedtuple('InceptionOutputs', ['logits', 'aux_logits'])
-InceptionOutputs.__annotations__ = {'logits': Tensor, 'aux_logits': Optional[Tensor]}
+InceptionOutputs = namedtuple("InceptionOutputs", ["logits", "aux_logits"])
+InceptionOutputs.__annotations__ = {"logits": Tensor, "aux_logits": Optional[Tensor]}
 
 # Script annotations failed with _GoogleNetOutputs = namedtuple ...
 # _InceptionOutputs set here for backwards compat
@@ -26,15 +26,11 @@ _InceptionOutputs = InceptionOutputs
 
 
 class BasicConv2d(nn.Module):
-    '''
+    """
     Conv + BN + ReLU
-    '''
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        **kwargs: Any
-    ) -> None:
+    """
+
+    def __init__(self, in_channels: int, out_channels: int, **kwargs: Any) -> None:
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, bias=False, **kwargs)
         self.bn = nn.BatchNorm2d(out_channels, eps=0.001)
@@ -46,16 +42,17 @@ class BasicConv2d(nn.Module):
 
 
 class InceptionA(nn.Module):
-    '''
+    """
     卷积之后大小不发生变化
     1X1Conv, 5X5Conv, 3X3Conv, avg_pool
     out_channel = 64 + 64 + 96 + pool_features
-    '''
+    """
+
     def __init__(
         self,
         in_channels: int,
-        pool_features: int, # max_pool中输出维度个数
-        conv_block: Optional[Callable[..., nn.Module]] = None
+        pool_features: int,  # max_pool中输出维度个数
+        conv_block: Optional[Callable[..., nn.Module]] = None,
     ) -> None:
         super().__init__()
         # 默认使用BasicConv2d
@@ -104,15 +101,14 @@ class InceptionA(nn.Module):
 
 
 class InceptionB(nn.Module):
-    '''
+    """
     宽高变化 kernel_size=3, stride=2
     3x3Conv1, 3x3Conv2, max_pool
     out_channels = 384 + 96 + in_channels
-    '''
+    """
+
     def __init__(
-        self,
-        in_channels: int,
-        conv_block: Optional[Callable[..., nn.Module]] = None
+        self, in_channels: int, conv_block: Optional[Callable[..., nn.Module]] = None
     ) -> None:
         super(InceptionB, self).__init__()
         # 默认使用BasicConv2d
@@ -149,16 +145,17 @@ class InceptionB(nn.Module):
 
 
 class InceptionC(nn.Module):
-    '''
+    """
     宽高不变
     1x1Conv, 7x7Conv1, 7x7Conv2, avg_pool
     out_channels = 192 * 4 = 768
-    '''
+    """
+
     def __init__(
         self,
         in_channels: int,
         channels_7x7: int,  # 每个branch的中间维度变化
-        conv_block: Optional[Callable[..., nn.Module]] = None
+        conv_block: Optional[Callable[..., nn.Module]] = None,
     ) -> None:
         super().__init__()
         # 默认使用BasicConv2d
@@ -178,9 +175,9 @@ class InceptionC(nn.Module):
 
         # 7x7Conv2
         self.branch7x7dbl_1 = conv_block(in_channels, c7, kernel_size=1)
-        self.branch7x7dbl_2 = conv_block(c7, c7,  kernel_size=(7, 1), padding=(3, 0))
-        self.branch7x7dbl_3 = conv_block(c7, c7,  kernel_size=(1, 7), padding=(0, 3))
-        self.branch7x7dbl_4 = conv_block(c7, c7,  kernel_size=(7, 1), padding=(3, 0))
+        self.branch7x7dbl_2 = conv_block(c7, c7, kernel_size=(7, 1), padding=(3, 0))
+        self.branch7x7dbl_3 = conv_block(c7, c7, kernel_size=(1, 7), padding=(0, 3))
+        self.branch7x7dbl_4 = conv_block(c7, c7, kernel_size=(7, 1), padding=(3, 0))
         self.branch7x7dbl_5 = conv_block(c7, 192, kernel_size=(1, 7), padding=(0, 3))
 
         # avg_pool
@@ -216,15 +213,14 @@ class InceptionC(nn.Module):
 
 
 class InceptionD(nn.Module):
-    '''
+    """
     宽高变化 kernel_size=3, stride=2
     3x3Conv + 7x7Conv + max_pool2d
     out_channels = 320 + 192 + in_channels
-    '''
+    """
+
     def __init__(
-        self,
-        in_channels: int,
-        conv_block: Optional[Callable[..., nn.Module]] = None
+        self, in_channels: int, conv_block: Optional[Callable[..., nn.Module]] = None
     ) -> None:
         super().__init__()
         # 默认使用BasicConv2d
@@ -264,15 +260,14 @@ class InceptionD(nn.Module):
 
 
 class InceptionE(nn.Module):
-    '''
+    """
     宽高不变
     1x1Conv + 3x3Conv1拼接a和b + 3x3Conv2 拼接a和b + avg_pool
     out_channels = 320 + 384 * 2 + 384 * 2 + 192 = 2048
-    '''
+    """
+
     def __init__(
-        self,
-        in_channels: int,
-        conv_block: Optional[Callable[..., nn.Module]] = None
+        self, in_channels: int, conv_block: Optional[Callable[..., nn.Module]] = None
     ) -> None:
         super().__init__()
         # 默认使用BasicConv2d
@@ -331,15 +326,16 @@ class InceptionE(nn.Module):
 
 
 class InceptionAux(nn.Module):
-    '''
+    """
     辅助分类层
     辅助输出的形状和最终输出的形状完全相同,形状都是[batch, num_classes];只在训练时会有,验证时没有
-    '''
+    """
+
     def __init__(
         self,
-        in_channels: int,   # 维度
-        num_classes: int,   # 分类数
-        conv_block: Optional[Callable[..., nn.Module]] = None
+        in_channels: int,  # 维度
+        num_classes: int,  # 分类数
+        conv_block: Optional[Callable[..., nn.Module]] = None,
     ) -> None:
         super().__init__()
         # 默认使用BasicConv2d
@@ -375,27 +371,36 @@ class InceptionAux(nn.Module):
 
 
 class Inception3(nn.Module):
-
     def __init__(
         self,
-        num_classes: int = 1000,                # 分类数
-        aux_logits: bool = True,                # 辅助分类层
-        transform_input: bool = False,          # 使用ImageNet均值化处理图像
-        inception_blocks: Optional[List[Callable[..., nn.Module]]] = None,  # 不同层使用的卷积类
-        init_weights: Optional[bool] = None     # 初始化权重
+        num_classes: int = 1000,  # 分类数
+        aux_logits: bool = True,  # 辅助分类层
+        transform_input: bool = False,  # 使用ImageNet均值化处理图像
+        inception_blocks: Optional[
+            List[Callable[..., nn.Module]]
+        ] = None,  # 不同层使用的卷积类
+        init_weights: Optional[bool] = None,  # 初始化权重
     ) -> None:
         super(Inception3, self).__init__()
 
         # 规定每层使用哪一个卷积类
         if inception_blocks is None:
             inception_blocks = [
-                BasicConv2d, InceptionA, InceptionB, InceptionC,
-                InceptionD, InceptionE, InceptionAux
+                BasicConv2d,
+                InceptionA,
+                InceptionB,
+                InceptionC,
+                InceptionD,
+                InceptionE,
+                InceptionAux,
             ]
         if init_weights is None:
-            warnings.warn('The default weight initialization of inception_v3 will be changed in future releases of '
-                          'torchvision. If you wish to keep the old behavior (which leads to long initialization times'
-                          ' due to scipy/scipy#11299), please set init_weights=True.', FutureWarning)
+            warnings.warn(
+                "The default weight initialization of inception_v3 will be changed in future releases of "
+                "torchvision. If you wish to keep the old behavior (which leads to long initialization times"
+                " due to scipy/scipy#11299), please set init_weights=True.",
+                FutureWarning,
+            )
             init_weights = True
 
         # Inception_blocks必须是7层
@@ -469,16 +474,18 @@ class Inception3(nn.Module):
         if init_weights:
             for m in self.modules():
                 if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-                    stddev = float(m.stddev) if hasattr(m, 'stddev') else 0.1  # type: ignore
-                    torch.nn.init.trunc_normal_(m.weight, mean=0.0, std=stddev, a=-2, b=2)
+                    stddev = float(m.stddev) if hasattr(m, "stddev") else 0.1  # type: ignore
+                    torch.nn.init.trunc_normal_(
+                        m.weight, mean=0.0, std=stddev, a=-2, b=2
+                    )
                 elif isinstance(m, nn.BatchNorm2d):
                     nn.init.constant_(m.weight, 1)
                     nn.init.constant_(m.bias, 0)
 
     def _transform_input(self, x: Tensor) -> Tensor:
-        '''
+        """
         使用ImageNet均值化处理图像
-        '''
+        """
         if self.transform_input:
             x_ch0 = torch.unsqueeze(x[:, 0], 1) * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
             x_ch1 = torch.unsqueeze(x[:, 1], 1) * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
@@ -567,12 +574,16 @@ class Inception3(nn.Module):
         else:
             return self.eager_outputs(x, aux)
 
+
 model_urls = {
     # Inception v3 ported from TensorFlow
-    'inception_v3_google': 'https://download.pytorch.org/models/inception_v3_google-0cc3c7bd.pth',
+    "inception_v3_google": "https://download.pytorch.org/models/inception_v3_google-0cc3c7bd.pth",
 }
 
-def inception_v3(pretrained: bool = False, progress: bool = True, **kwargs: Any) -> Inception3:
+
+def inception_v3(
+    pretrained: bool = False, progress: bool = True, **kwargs: Any
+) -> Inception3:
     r"""
     The required minimum input size of the model is 75x75.
 
@@ -598,7 +609,9 @@ def inception_v3(pretrained: bool = False, progress: bool = True, **kwargs: Any)
             original_aux_logits = True
         kwargs["init_weights"] = False  # we are loading weights from a pretrained model
         model = Inception3(**kwargs)
-        state_dict = load_state_dict_from_url(model_urls["inception_v3_google"], progress=progress)
+        state_dict = load_state_dict_from_url(
+            model_urls["inception_v3_google"], progress=progress
+        )
         model.load_state_dict(state_dict)
         if not original_aux_logits:
             model.aux_logits = False
@@ -609,7 +622,11 @@ def inception_v3(pretrained: bool = False, progress: bool = True, **kwargs: Any)
 
 
 if __name__ == "__main__":
-    device = "cuda:0" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+    device = (
+        "cuda:0"
+        if torch.cuda.is_available()
+        else ("mps" if torch.backends.mps.is_available() else "cpu")
+    )
 
     x = torch.ones(2, 3, 299, 299).to(device)
     model = inception_v3(pretrained=False).to(device)

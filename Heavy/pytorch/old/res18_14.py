@@ -1,14 +1,14 @@
-'''
+"""
 resnet18
 [2, 2, 2, 2] = 8 * 2 + 2 = 16
 
 
-初始 7*7 替换为 3个 3*3 
+初始 7*7 替换为 3个 3*3
 下采样由 Conv 转换为 AvgPool2d Conv会损失0.75数据
 DownSampleBasicBlock卷积改变
 ReLU替换为LeakyReLU
 BatchNorm2d,LeakyReLU提到Conv前面来
-'''
+"""
 
 import torch
 from torch import nn
@@ -21,10 +21,10 @@ from torchvision.models import resnet18
 
 
 class BasicBlock(nn.Module):
-    '''
+    """
     通道变化,宽高不变
     2层卷积
-    '''
+    """
 
     def __init__(self, in_channels):
         super(BasicBlock, self).__init__()
@@ -32,16 +32,29 @@ class BasicBlock(nn.Module):
         # 两层卷积
         self.convs = nn.Sequential(
             #            通道为输入数据通道数
-            nn.BatchNorm2d(in_channels, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+            nn.BatchNorm2d(
+                in_channels,
+                eps=1e-05,
+                momentum=0.1,
+                affine=True,
+                track_running_stats=True,
+            ),
             nn.LeakyReLU(inplace=True),
-            nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1, bias=False),
-
-
-            nn.BatchNorm2d(in_channels, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+            nn.Conv2d(
+                in_channels, in_channels, kernel_size=3, stride=1, padding=1, bias=False
+            ),
+            nn.BatchNorm2d(
+                in_channels,
+                eps=1e-05,
+                momentum=0.1,
+                affine=True,
+                track_running_stats=True,
+            ),
             nn.LeakyReLU(inplace=True),
-            nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.Conv2d(
+                in_channels, in_channels, kernel_size=3, stride=1, padding=1, bias=False
+            ),
         )
-
 
     def forward(self, x):
         """
@@ -62,18 +75,18 @@ class BasicBlock(nn.Module):
 
 
 class DownSampleBasicBlock(nn.Module):
-    '''
+    """
     通道变化,宽高减半
     2层卷积
-    '''
+    """
 
     def __init__(self, in_channels, out_channels):
-        '''
+        """
         输入和输出通道可以不同,如果不同就让原始数据做一次卷积就行了
         图片的宽高不变,通过卷积核和padding调整
         :param in_channels:
         :param out_channels:
-        '''
+        """
         super(DownSampleBasicBlock, self).__init__()
 
         # DownSampleBasicBlock(
@@ -90,27 +103,45 @@ class DownSampleBasicBlock(nn.Module):
 
         # 两层卷积
         self.convs = nn.Sequential(
-
-
             # 增加 1*1 卷积
             #            通道为输入数据通道数
-            nn.BatchNorm2d(in_channels, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+            nn.BatchNorm2d(
+                in_channels,
+                eps=1e-05,
+                momentum=0.1,
+                affine=True,
+                track_running_stats=True,
+            ),
             nn.LeakyReLU(inplace=True),
             nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False),
-            
-
             #            通道为输入数据通道数
-            nn.BatchNorm2d(out_channels, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+            nn.BatchNorm2d(
+                out_channels,
+                eps=1e-05,
+                momentum=0.1,
+                affine=True,
+                track_running_stats=True,
+            ),
             nn.LeakyReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=2, padding=1, bias=False),
-            
-
+            nn.Conv2d(
+                out_channels,
+                out_channels,
+                kernel_size=3,
+                stride=2,
+                padding=1,
+                bias=False,
+            ),
             # 3*3 => 1*1
-            nn.BatchNorm2d(out_channels, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+            nn.BatchNorm2d(
+                out_channels,
+                eps=1e-05,
+                momentum=0.1,
+                affine=True,
+                track_running_stats=True,
+            ),
             nn.LeakyReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False), 
+            nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False),
         )
-
 
         #   # 有下采样
         #   (downsample): Sequential(
@@ -120,13 +151,16 @@ class DownSampleBasicBlock(nn.Module):
         self.downsample = nn.Sequential(
             # 增加下采样,不使用卷积将宽高减半
             nn.AvgPool2d(kernel_size=2, stride=2),
-            
             nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False),
-
             #            通道为输入数据通道数
-            nn.BatchNorm2d(out_channels, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+            nn.BatchNorm2d(
+                out_channels,
+                eps=1e-05,
+                momentum=0.1,
+                affine=True,
+                track_running_stats=True,
+            ),
         )
-
 
     def forward(self, x):
         """
@@ -157,19 +191,24 @@ class ResNet18(nn.Module):
         # [b, 3, h, w] => [b, 64, h/4, w/4]
         self.conv1 = nn.Sequential(
             # 7*7 变为 3 层 3*3
-            nn.Conv2d( 3, 64, kernel_size=3, padding=1, stride=2, bias=False),
-            nn.BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+            nn.Conv2d(3, 64, kernel_size=3, padding=1, stride=2, bias=False),
+            nn.BatchNorm2d(
+                64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True
+            ),
             nn.LeakyReLU(inplace=True),
-
             nn.Conv2d(64, 64, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+            nn.BatchNorm2d(
+                64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True
+            ),
             nn.LeakyReLU(inplace=True),
-
             nn.Conv2d(64, 64, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True),
+            nn.BatchNorm2d(
+                64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True
+            ),
             nn.LeakyReLU(inplace=True),
-
-            nn.MaxPool2d(kernel_size=3, stride=2, padding=1, dilation=1, ceil_mode=False)
+            nn.MaxPool2d(
+                kernel_size=3, stride=2, padding=1, dilation=1, ceil_mode=False
+            ),
         )
 
         # [b, 64, h, w] => [b, 64, h, w]
@@ -209,12 +248,11 @@ class ResNet18(nn.Module):
         # print(out.shape)
         # torch.Size([2, 512, 1, 1])
 
-
     def forward(self, x):
-        '''
+        """
         :param x: [b, 3, h, w]
         :return:
-        '''
+        """
         batch_size = x.size(0)
 
         # [b, 3, h, w] => [b, 64, h, w]
@@ -237,20 +275,20 @@ class ResNet18(nn.Module):
         return x
 
     def _addBasicBlock(self, layer, numbers, in_out_channels):
-        '''
+        """
         向layer中添加Bottleneck层
         :param layer:  要添加Bottleneck的layer
         :param numbers: 添加层数
         :param in_out_channels: Bottleneck的参数
         :param middle_channels: Bottleneck的参数
         :return:
-        '''
+        """
         for i in range(numbers):
             #                参数1名字必须不同,不然会被覆盖
-            layer.add_module(f'BasicBlock{i + 1}', BasicBlock(in_out_channels))
+            layer.add_module(f"BasicBlock{i + 1}", BasicBlock(in_out_channels))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # 测试BasicBlock
     # 维度不变
     x = torch.ones(2, 3, 32, 32)
@@ -259,7 +297,7 @@ if __name__ == '__main__':
     print(out.shape)
     # torch.Size([2, 3, 32, 32])
 
-    print('*' * 50)
+    print("*" * 50)
 
     # DownSampleBasicBlock
     # 维度不变,宽高减半
@@ -269,7 +307,7 @@ if __name__ == '__main__':
     print(out.shape)
     # torch.Size([2, 10, 16, 16])
 
-    print('*' * 50)
+    print("*" * 50)
 
     # 测试 ResNet
     x = torch.ones(2, 3, 32, 32)
@@ -278,6 +316,5 @@ if __name__ == '__main__':
     print(out.shape)
     # torch.Size([2, 10])
 
-    print('*' * 50)
+    print("*" * 50)
     # print(res_net)
-
