@@ -3,19 +3,20 @@ import torch
 from torch import nn, optim, Tensor
 from torch.nn import functional as F
 from torchmetrics.functional import accuracy, precision, recall, confusion_matrix
-import pytorch_lightning as pl
-from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import (
-    LearningRateMonitor,
-    DeviceStatsMonitor,
-    ModelCheckpoint,
-    EarlyStopping,
-)
-from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger, WandbLogger
-# import lightning as pl
-# from lightning import Trainer
-# from lightning.pytorch.callbacks import LearningRateMonitor, DeviceStatsMonitor, ModelCheckpoint, EarlyStopping
-# from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger, WandbLogger
+# import pytorch_lightning as pl
+# from pytorch_lightning import Trainer
+# from pytorch_lightning.callbacks import (
+#     LearningRateMonitor,
+#     DeviceStatsMonitor,
+#     ModelCheckpoint,
+#     EarlyStopping,
+# )
+# from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger, WandbLogger
+# same as above
+import lightning as pl
+from lightning import Trainer
+from lightning.pytorch.callbacks import LearningRateMonitor, DeviceStatsMonitor, ModelCheckpoint, EarlyStopping
+from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger, WandbLogger
 
 
 # pl.seed_everything(42)
